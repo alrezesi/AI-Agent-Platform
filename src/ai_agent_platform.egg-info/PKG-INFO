@@ -1,0 +1,51 @@
+Metadata-Version: 2.4
+Name: ai-agent-platform
+Version: 0.1.0
+Summary: AI Agent Platform with multi-agent orchestration
+Author-email: Your Name <you@example.com>
+License: MIT
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi
+Requires-Dist: uvicorn[standard]
+Requires-Dist: pydantic
+Requires-Dist: pydantic-settings
+Requires-Dist: redis
+Requires-Dist: asyncpg
+Requires-Dist: sqlalchemy
+Requires-Dist: alembic
+Requires-Dist: httpx
+Requires-Dist: python-dotenv
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: pytest-asyncio; extra == "dev"
+Requires-Dist: pytest-cov; extra == "dev"
+Requires-Dist: black; extra == "dev"
+Requires-Dist: ruff; extra == "dev"
+Requires-Dist: mypy; extra == "dev"
+Requires-Dist: pre-commit; extra == "dev"
+
+﻿# AI Agent Platform
+
+A modular, extensible AI agent platform with multi-agent orchestration, task scheduling, and recovery mechanisms.
+
+## Project Structure
+
+See the full structure in the repository.
+
+## Getting Started
+
+1. Create virtual environment: python -m venv venv
+2. Activate: env\Scripts\activate (Windows)
+3. Install dependencies: pip install -e .
+4. Run: uvicorn src.agent_platform.api.main:app --reload
+
+## Development
+
+- Add new agents in src/agents/
+- Core primitives in src/agent_platform/core/
+- Extend via plugins in src/agent_platform/plugins/
+
+## License
+
+MIT
