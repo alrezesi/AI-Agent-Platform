@@ -24,12 +24,10 @@ class InMemoryTaskQueue(BaseTaskQueue):
 
     def _priority_value(self, task: Task) -> int:
         # Lower number = higher priority
-        # CRITICAL=0, HIGH=1, MEDIUM=2, LOW=3
         return task.priority.value
 
     async def enqueue(self, task: Task) -> None:
         async with self._lock:
-            # Update status to PENDING
             task.status = TaskStatus.PENDING
             self._tasks[task.task_id] = task
             item = TaskQueueItem(
@@ -66,9 +64,7 @@ class InMemoryTaskQueue(BaseTaskQueue):
                 return False
             if task.status not in (TaskStatus.PENDING, TaskStatus.SCHEDULED):
                 return False
-            # Remove from heap (lazy deletion - mark as cancelled)
             task.status = TaskStatus.CANCELLED
-            # We'll skip removing from heap; it will be ignored during dequeue
             return True
 
     async def get_task(self, task_id: str, tenant_id: Optional[str] = None) -> Optional[Task]:
@@ -95,8 +91,6 @@ class InMemoryTaskQueue(BaseTaskQueue):
                     results = [t for t in results if t.priority == filters.priority]
                 if filters.tenant_id:
                     results = [t for t in results if t.tenant_id == filters.tenant_id]
-                # Date filters can be added here if needed
-            # Sort by created_at descending (latest first) for list view
             results.sort(key=lambda t: t.created_at, reverse=True)
             return results[offset:offset + limit]
 
@@ -105,7 +99,6 @@ class InMemoryTaskQueue(BaseTaskQueue):
             tasks = list(self._tasks.values())
             if tenant_id:
                 tasks = [t for t in tasks if t.tenant_id == tenant_id]
-
             stats = TaskStats(
                 total=len(tasks),
                 pending=sum(1 for t in tasks if t.status == TaskStatus.PENDING),
@@ -120,3 +113,9 @@ class InMemoryTaskQueue(BaseTaskQueue):
     async def size(self) -> int:
         async with self._lock:
             return len(self._heap)
+
+    async def update_task(self, task: Task) -> None:
+        """Update an existing task in the store."""
+        async with self._lock:
+            if task.task_id in self._tasks:
+                self._tasks[task.task_id] = task

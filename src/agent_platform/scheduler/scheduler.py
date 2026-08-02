@@ -84,3 +84,10 @@ class TaskScheduler:
     async def queue_size(self) -> int:
         """Get the number of pending tasks."""
         return await self.queue.size()
+
+    async def on_task_completed(self, task: Task) -> None:
+        """
+        Called when a task is completed (success, failure, timeout, etc.)
+        Updates the task in the queue's storage.
+        """
+        await self.queue.update_task(task)

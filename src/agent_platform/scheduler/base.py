@@ -57,3 +57,8 @@ class BaseTaskQueue(ABC):
     async def size(self) -> int:
         """Return the number of pending tasks in the queue."""
         pass
+
+    @abstractmethod
+    async def update_task(self, task: Task) -> None:
+        """Update an existing task in the store (status, result, error)."""
+        pass
