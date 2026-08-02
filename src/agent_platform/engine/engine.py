@@ -4,11 +4,13 @@
 import asyncio
 import logging
 from typing import Dict, Optional, List, Type, Any
+from datetime import datetime
 
 from src.agent_platform.core.agent import BaseAgent, AgentRuntimeState
 from src.agent_platform.engine.context import AgentContext
 from src.agent_platform.registry.base import BaseAgentRegistry
 from src.agent_platform.scheduler.scheduler import TaskScheduler
+from src.agent_platform.scheduler.worker import TaskWorker  # <-- NEW IMPORT
 from src.agent_platform.core.task import Task, TaskStatus
 
 logger = logging.getLogger(__name__)
@@ -62,7 +64,8 @@ class AgentEngine:
         try:
             await agent.initialize()
             agent._initialized = True
-            agent.state = AgentRuntimeState.IDLE
+            # Set state to RUNNING after successful initialization
+            agent.state = AgentRuntimeState.RUNNING
         except Exception as e:
             logger.error(f"Failed to initialize agent {agent_id}: {e}")
             agent.state = AgentRuntimeState.ERROR
@@ -186,23 +189,21 @@ class AgentEngine:
                     task.status = TaskStatus.FAILED
                     task.error = f"Agent {agent_id} not found in engine"
                     logger.warning(f"Task {task.task_id} failed: agent not found")
+                    # Update scheduler
+                    await self.scheduler.on_task_completed(task)
                     continue
 
                 if not agent.is_ready():
-                    # Agent not ready, re-enqueue? For simplicity, mark failed.
+                    # Agent not ready, mark failed
                     task.status = TaskStatus.FAILED
                     task.error = f"Agent {agent_id} is not ready (state: {agent.state})"
                     logger.warning(f"Task {task.task_id} failed: agent not ready")
+                    await self.scheduler.on_task_completed(task)
                     continue
 
                 # Acquire semaphore to respect concurrency limit
                 semaphore = self._semaphores[agent_id]
-                # We pass the task to the worker loop via a queue or directly.
-                # Since we have one worker per agent, we can push to a queue.
-                # For simplicity, we'll just run it directly in the worker loop.
-                # But we need a queue for the worker to pull from.
-                # Let's store a simple asyncio.Queue per agent.
-                # I'll refactor to use a queue:
+                # Create a queue for this agent if not exists
                 if not hasattr(agent, '_task_queue'):
                     agent._task_queue = asyncio.Queue()
 
@@ -253,21 +254,14 @@ class AgentEngine:
 
     async def _execute_task(self, agent: BaseAgent, task: Task) -> None:
         """
-        Execute a single task on the given agent.
+        Execute a single task on the given agent using TaskWorker.
         """
-        try:
-            logger.info(f"Executing task {task.task_id} on agent {agent.agent_id}")
-            result = await agent.run(task)
-            task.status = TaskStatus.COMPLETED
-            task.result = result
-            logger.info(f"Task {task.task_id} completed successfully")
-        except Exception as e:
-            logger.error(f"Task {task.task_id} failed: {e}")
-            task.status = TaskStatus.FAILED
-            task.error = str(e)
-            # In phase 12, we'll add retry logic here
-        finally:
-            task.completed_at = datetime.utcnow()
+        # Create a worker and execute
+        worker = TaskWorker(task, agent)
+        updated_task = await worker.execute()
+
+        # Notify scheduler about the completion/update
+        await self.scheduler.on_task_completed(updated_task)
 
     # --- Agent lifecycle control methods ---
     async def pause_agent(self, agent_id: str) -> bool:
