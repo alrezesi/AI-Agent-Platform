@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from .models import TenantResourceUsage  # این مدل باید در models.py تعریف شده باشد
+from .models import TenantResourceUsage
 from .exceptions import TenantQuotaExceededError
 from .manager import TenantManager
 
@@ -25,69 +25,63 @@ class QuotaChecker:
         self._lock = asyncio.Lock()
 
     async def check_agent_quota(self, tenant_id: str, current_count: int) -> bool:
-        """
-        Check if the tenant can create more agents.
-        """
+        """Check if the tenant can create more agents."""
         tenant = await self.manager.get_tenant(tenant_id)
         if not tenant:
             return False
         if current_count >= tenant.quota.max_agents:
             raise TenantQuotaExceededError(
-                f"Tenant {tenant_id} has reached max agents limit ({tenant.quota.max_agents})"
+                f"Tenant {tenant_id} has reached max agents limit "
+                f"({tenant.quota.max_agents})"
             )
         return True
 
     async def check_task_quota(self, tenant_id: str, current_running: int) -> bool:
-        """
-        Check if the tenant can submit more tasks.
-        """
+        """Check if the tenant can submit more tasks."""
         tenant = await self.manager.get_tenant(tenant_id)
         if not tenant:
             return False
         if current_running >= tenant.quota.max_concurrent_tasks:
             raise TenantQuotaExceededError(
-                f"Tenant {tenant_id} has reached max concurrent tasks limit ({tenant.quota.max_concurrent_tasks})"
+                f"Tenant {tenant_id} has reached max concurrent tasks limit "
+                f"({tenant.quota.max_concurrent_tasks})"
             )
         return True
 
     async def check_message_quota(self, tenant_id: str) -> bool:
-        """
-        Check message rate limit for a tenant.
-        """
+        """Check message rate limit for a tenant."""
         tenant = await self.manager.get_tenant(tenant_id)
         if not tenant:
             return False
 
         async with self._lock:
             now = datetime.utcnow()
-            # Clean old entries
             if tenant_id not in self._message_counts:
                 self._message_counts[tenant_id] = []
+            # Clean old entries (older than 1 second)
             self._message_counts[tenant_id] = [
                 ts for ts in self._message_counts[tenant_id]
                 if (now - ts).total_seconds() < 1.0
             ]
 
-            # Check rate
             if len(self._message_counts[tenant_id]) >= tenant.quota.max_messages_per_second:
                 raise TenantQuotaExceededError(
-                    f"Tenant {tenant_id} has exceeded message rate limit ({tenant.quota.max_messages_per_second}/s)"
+                    f"Tenant {tenant_id} has exceeded message rate limit "
+                    f"({tenant.quota.max_messages_per_second}/s)"
                 )
 
-            # Record message
             self._message_counts[tenant_id].append(now)
             return True
 
     async def check_workflow_quota(self, tenant_id: str, current_count: int) -> bool:
-        """
-        Check if the tenant can create more workflows.
-        """
+        """Check if the tenant can create more workflows."""
         tenant = await self.manager.get_tenant(tenant_id)
         if not tenant:
             return False
         if current_count >= tenant.quota.max_workflows:
             raise TenantQuotaExceededError(
-                f"Tenant {tenant_id} has reached max workflows limit ({tenant.quota.max_workflows})"
+                f"Tenant {tenant_id} has reached max workflows limit "
+                f"({tenant.quota.max_workflows})"
             )
         return True
 
@@ -117,7 +111,9 @@ class QuotaManager:
         async with self._lock:
             if tenant_id not in self._usage_counts:
                 self._usage_counts[tenant_id] = {}
-            self._usage_counts[tenant_id]['agents'] = self._usage_counts[tenant_id].get('agents', 0) + 1
+            self._usage_counts[tenant_id]['agents'] = (
+                self._usage_counts[tenant_id].get('agents', 0) + 1
+            )
             usage = await self.quota_checker.get_usage(tenant_id)
             if usage is None:
                 usage = TenantResourceUsage(tenant_id=tenant_id)
@@ -128,7 +124,9 @@ class QuotaManager:
         """Decrement agent count for a tenant."""
         async with self._lock:
             if tenant_id in self._usage_counts:
-                self._usage_counts[tenant_id]['agents'] = max(0, self._usage_counts[tenant_id].get('agents', 0) - 1)
+                self._usage_counts[tenant_id]['agents'] = max(
+                    0, self._usage_counts[tenant_id].get('agents', 0) - 1
+                )
                 usage = await self.quota_checker.get_usage(tenant_id)
                 if usage:
                     usage.active_agents = self._usage_counts[tenant_id]['agents']
