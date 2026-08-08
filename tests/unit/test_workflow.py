@@ -121,3 +121,87 @@ async def test_workflow_executor(sample_workflow):
     assert state.workflow_status == WorkflowStatus.COMPLETED
     for step in sample_workflow.steps:
         assert state.get_step_status(step.step_id) == StepStatus.COMPLETED
+
+
+
+@pytest.mark.asyncio
+async def test_workflow_executor_parallel():
+    """Test parallel execution of independent steps."""
+    # Create workflow with two independent steps
+    steps = [
+        WorkflowStep(
+            step_id="step1", name="Step 1", agent_id="agent1", task_type="test", payload={"x": 1}
+        ),
+        WorkflowStep(
+            step_id="step2", name="Step 2", agent_id="agent2", task_type="test", payload={"y": 2}
+        ),
+    ]
+    workflow = Workflow(workflow_id="parallel_wf", name="Parallel", steps=steps)
+
+    state = WorkflowStateManager(workflow)
+    scheduler = TaskScheduler(InMemoryTaskQueue())
+    executor = WorkflowExecutor(scheduler, state)
+
+    # Override _wait_for_task
+    async def mock_wait(task_id):
+        from src.agent_platform.core.task import Task, TaskStatus
+
+        return Task(
+            task_id=task_id,
+            agent_id="agent1",
+            type="test",
+            payload={},
+            status=TaskStatus.COMPLETED,
+            result="success",
+        )
+
+    executor._wait_for_task = mock_wait
+
+    await executor.execute()
+    assert state.workflow_status == WorkflowStatus.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_workflow_executor_with_fallback():
+    """Test workflow with fallback step."""
+    steps = [
+        WorkflowStep(
+            step_id="step1",
+            name="Main Step",
+            agent_id="agent1",
+            task_type="test",
+            payload={},
+            fallback_step_id="fallback",
+        ),
+        WorkflowStep(
+            step_id="fallback",
+            name="Fallback Step",
+            agent_id="agent2",
+            task_type="test",
+            payload={"fallback": True},
+        ),
+    ]
+    workflow = Workflow(workflow_id="fallback_wf", name="Fallback", steps=steps)
+
+    state = WorkflowStateManager(workflow)
+    scheduler = TaskScheduler(InMemoryTaskQueue())
+    executor = WorkflowExecutor(scheduler, state)
+
+    # Override to simulate failure
+    async def mock_wait(task_id):
+        from src.agent_platform.core.task import Task, TaskStatus
+
+        return Task(
+            task_id=task_id,
+            agent_id="agent1",
+            type="test",
+            payload={},
+            status=TaskStatus.FAILED,
+            error="Simulated failure",
+        )
+
+    executor._wait_for_task = mock_wait
+
+    await executor.execute()
+    # Should have executed fallback
+    assert state.workflow_status == WorkflowStatus.COMPLETED
