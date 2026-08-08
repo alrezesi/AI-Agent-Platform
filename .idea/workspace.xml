@@ -4,7 +4,21 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3de2eebe-8eaf-4bb1-bbb6-6a62edd138d2" name="Changes" comment="test: achieve 80% test coverage with all 146 tests passing" />
+    <list default="true" id="3de2eebe-8eaf-4bb1-bbb6-6a62edd138d2" name="Changes" comment="test: achieve 80% test coverage with all 146 tests passing">
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/a2a_communication.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/architecture.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/distributed_execution.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/failure_recovery.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/message_bus.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/monitoring.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/multi_tenant.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/plugin_system.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/registry.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/task_execution.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/tool_calling.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/workflow_engine.md" beforeDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -78,7 +92,7 @@
       <workItem from="1785746240388" duration="2402000" />
       <workItem from="1785757441403" duration="2744000" />
       <workItem from="1786185639762" duration="9106000" />
-      <workItem from="1786207525290" duration="4644000" />
+      <workItem from="1786207525290" duration="6180000" />
     </task>
     <task id="LOCAL-00001" summary="test: achieve 80% test coverage with all 146 tests passing">
       <option name="closed" value="true" />
@@ -88,7 +102,15 @@
       <option name="project" value="LOCAL" />
       <updated>1786216123457</updated>
     </task>
-    <option name="localTasksCounter" value="2" />
+    <task id="LOCAL-00002" summary="test: achieve 80% test coverage with all 146 tests passing">
+      <option name="closed" value="true" />
+      <created>1786216423353</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1786216423353</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
