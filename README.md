@@ -1,6 +1,6 @@
 ﻿# 🤖 AI Agent Platform
 
-[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com/)
 [![pytest](https://img.shields.io/badge/pytest-7.4+-orange.svg)](https://docs.pytest.org/)
 [![Coverage](https://img.shields.io/badge/coverage-80%25-brightgreen.svg)](https://github.com/your-repo/ai-agent-platform)
@@ -77,15 +77,15 @@ The **AI Agent Platform** is a scalable microservices‑style system that manage
 
 ## 🛠️ Tech Stack
 
-| Category       | Technologies                                                                 |
-|----------------|-------------------------------------------------------------------------------|
-| **Language**   | Python 3.11+                                                                 |
-| **API**        | FastAPI, Uvicorn                                                             |
-| **Data**       | PostgreSQL (asyncpg), Redis (redis-py)                                      |
-| **Validation** | Pydantic                                                                     |
-| **Testing**    | pytest, pytest‑asyncio, pytest‑cov                                           |
-| **Monitoring** | Prometheus (metrics), OpenTelemetry (tracing), structured logging           |
-| **Infrastructure** | Docker, Docker Compose, Kubernetes (optional)                           |
+| Category       | Technologies                                                      |
+|----------------|-------------------------------------------------------------------|
+| **Language**   | Python 3.14                                                       |
+| **API**        | FastAPI, Uvicorn                                                  |
+| **Data**       | PostgreSQL (asyncpg), Redis (redis-py)                            |
+| **Validation** | Pydantic                                                          |
+| **Testing**    | pytest, pytest‑asyncio, pytest‑cov                                |
+| **Monitoring** | Prometheus (metrics), OpenTelemetry (tracing), structured logging |
+| **Infrastructure** | Docker, Docker Compose, Kubernetes (optional)                     |
 
 ---
 
