@@ -77,15 +77,15 @@ The **AI Agent Platform** is a scalable microservices‑style system that manage
 
 ## 🛠️ Tech Stack
 
-| Category       | Technologies                                                      |
-|----------------|-------------------------------------------------------------------|
-| **Language**   | Python 3.14                                                       |
-| **API**        | FastAPI, Uvicorn                                                  |
-| **Data**       | PostgreSQL (asyncpg), Redis (redis-py)                            |
-| **Validation** | Pydantic                                                          |
-| **Testing**    | pytest, pytest‑asyncio, pytest‑cov                                |
+| Category       | Technologies                                                     |
+|----------------|------------------------------------------------------------------|
+| **Language**   | Python 3.14                                                      |
+| **API**        | FastAPI, Uvicorn                                                 |
+| **Data**       | PostgreSQL (asyncpg), Redis (redis-py)                           |
+| **Validation** | Pydantic                                                         |
+| **Testing**    | pytest, pytest‑asyncio, pytest‑cov                               |
 | **Monitoring** | Prometheus (metrics), OpenTelemetry (tracing), structured logging |
-| **Infrastructure** | Docker, Docker Compose, Kubernetes (optional)                     |
+| **Infrastructure** | Docker, Docker Compose                     |
 
 ---
 
