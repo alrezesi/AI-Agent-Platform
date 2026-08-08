@@ -102,3 +102,51 @@ async def test_delegation():
     retrieved = delegation_manager.get_delegation_result(del_id)
     assert retrieved is not None
     assert retrieved.status == "completed"
+
+
+
+@pytest.mark.asyncio
+async def test_chain_collaboration():
+    from src.agent_platform.a2a.collaboration import ChainCollaboration
+    from src.agent_platform.a2a.context import ConversationContext
+
+    context = ConversationContext(session_id="session1")
+    router = AsyncMock()
+    delegation_manager = AsyncMock()
+
+    chain = ChainCollaboration(router, delegation_manager, agent_chain=["agent1", "agent2"])
+
+    # Mock delegation
+    delegation_manager.delegate = AsyncMock(return_value="del-123")
+    delegation_manager._wait_for_delegation_result = AsyncMock(return_value={"result": "processed"})
+
+    result = await chain.execute(
+        {"initial_payload": "data", "required_capabilities": ["process"]}, context
+    )
+    assert "final_result" in result
+
+
+@pytest.mark.asyncio
+async def test_parallel_collaboration():
+    from src.agent_platform.a2a.collaboration import ParallelCollaboration
+
+    router = AsyncMock()
+    delegation_manager = AsyncMock()
+
+    parallel = ParallelCollaboration(router, delegation_manager)
+
+    request = {
+        "subtasks": [
+            {"type": "task1", "capabilities": ["cap1"], "payload": {}},
+            {"type": "task2", "capabilities": ["cap2"], "payload": {}},
+        ]
+    }
+    context = ConversationContext(session_id="session1")
+
+    # Mock router to return target agents
+    router.route = AsyncMock(return_value=MagicMock(target_agent_id="agent1"))
+    delegation_manager.delegate = AsyncMock(return_value="del-123")
+    delegation_manager._wait_for_delegation_result = AsyncMock(return_value={"result": "ok"})
+
+    result = await parallel.execute(request, context)
+    assert "results" in result
