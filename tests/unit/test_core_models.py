@@ -6,6 +6,7 @@ from datetime import datetime
 from src.agent_platform.core.agent import AgentRecord, AgentStatus, AgentCapability
 from src.agent_platform.core.task import Task, TaskPriority, TaskStatus
 from src.agent_platform.core.message import Message, MessageType
+from src.agent_platform.core.tenant import Tenant, TenantStatus, TenantQuota
 
 
 def test_agent_record_creation():
@@ -40,3 +41,21 @@ def test_message_validation():
         content={"query": "ping"}
     )
     assert msg.type == MessageType.REQUEST
+
+
+def test_tenant_creation():
+    tenant = Tenant(
+        tenant_id="t1",
+        name="Test Tenant",
+        status=TenantStatus.ACTIVE,
+        quota=TenantQuota(max_agents=5),
+    )
+    assert tenant.is_active() is True
+    assert tenant.quota.max_agents == 5
+
+
+def test_tenant_api_key():
+    tenant = Tenant(tenant_id="t1", name="Test")
+    tenant.api_keys = [{"key": "key1", "is_active": True}]
+    assert tenant.has_api_key("key1") is True
+    assert tenant.has_api_key("key2") is False

@@ -104,3 +104,42 @@ async def test_plugin_manager_hook_integration():
 
     results = await manager.execute_hook(HookPoint.PRE_AGENT_RUN)
     assert results == ["handled"]
+
+
+
+def test_discover_plugins_from_directory(tmp_path):
+    plugin_dir = tmp_path / "plugins"
+    plugin_dir.mkdir()
+    plugin_file = plugin_dir / "test_plugin.py"
+    plugin_file.write_text("""
+from src.agent_platform.plugins.base import Plugin
+class MyPlugin(Plugin):
+    async def on_load(self, context): pass
+    async def on_unload(self): pass
+""")
+    from src.agent_platform.plugins.discovery import discover_plugins
+    classes = discover_plugins(plugin_dir)
+    assert len(classes) == 1
+    assert classes[0].__name__ == "MyPlugin"
+
+
+def test_discover_plugins_empty_dir(tmp_path):
+    plugin_dir = tmp_path / "empty_plugins"
+    plugin_dir.mkdir()
+    from src.agent_platform.plugins.discovery import discover_plugins
+    classes = discover_plugins(plugin_dir)
+    assert len(classes) == 0
+
+
+def test_load_plugin_from_path(tmp_path):
+    plugin_file = tmp_path / "plugin.py"
+    plugin_file.write_text("""
+from src.agent_platform.plugins.base import Plugin
+class MyPlugin(Plugin):
+    async def on_load(self, context): pass
+    async def on_unload(self): pass
+""")
+    from src.agent_platform.plugins.discovery import load_plugin_from_path
+    cls = load_plugin_from_path(plugin_file)
+    assert cls is not None
+    assert cls.__name__ == "MyPlugin"

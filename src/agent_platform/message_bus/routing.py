@@ -1,7 +1,9 @@
 
 # Role-based routing utilities
 
+from enum import Enum
 from typing import Dict, List, Any, Optional
+
 from src.agent_platform.message_bus.models import RouteRule
 
 
@@ -24,7 +26,7 @@ class RoleRouter:
             return True
         return False
 
-    def evaluate(self, message: Any, context: Optional[Dict[str, Any]] = None) -> List[str]:
+    def evaluate(self, message: Any, context: Optional[Dict] = None) -> List[str]:
         """
         Evaluate all rules and return target agent IDs or roles.
         """
@@ -40,7 +42,7 @@ class RoleRouter:
                 continue
             if self._matches(rule, message, context):
                 targets.extend(rule.target_agents)
-                # We could also expand roles to agent IDs here
+                targets.extend(rule.target_roles)
                 break  # First matching rule wins
         return list(set(targets))
 
@@ -54,7 +56,10 @@ class RoleRouter:
         return True
 
     def _get_nested(self, obj: Any, path: str) -> Any:
-        """Get nested attribute using dot notation."""
+        """
+        Get nested attribute using dot notation.
+        If the final value is an Enum, returns its value.
+        """
         parts = path.split(".")
         current = obj
         for part in parts:
@@ -64,4 +69,7 @@ class RoleRouter:
                 current = current[part]
             else:
                 return None
+        # If the result is an Enum, return its value for comparison
+        if isinstance(current, Enum):
+            return current.value
         return current

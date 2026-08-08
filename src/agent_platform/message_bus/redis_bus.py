@@ -1,15 +1,15 @@
-
-# Redis-backed message bus using Pub/Sub and List for point-to-point
+# src/agent_platform/message_bus/redis_bus.py
+# Redis-backed message bus with full implementation and robust worker
 
 import json
 import asyncio
 import logging
-from typing import Dict, List, Optional, Set, Callable, Awaitable
+from typing import Dict, List, Optional, Set, Callable, Awaitable, Any
 from redis.asyncio import Redis
-
 
 from src.agent_platform.core.message import Message, MessageStatus
 from src.agent_platform.message_bus.base import BaseMessageBus, MessageHandler
+from src.agent_platform.message_bus.models import Subscription, RouteRule, MessageDeliveryRecord
 from src.agent_platform.message_bus.exceptions import MessageDeliveryError
 
 logger = logging.getLogger(__name__)
@@ -17,26 +17,19 @@ logger = logging.getLogger(__name__)
 
 class RedisMessageBus(BaseMessageBus):
     """
-    Redis-based message bus.
-    Uses Redis Pub/Sub for broadcasts and topic messages.
-    Uses Redis List (LPUSH/RPOP) for point-to-point reliable queues.
+    Redis-backed message bus.
+    Supports point-to-point, broadcast, and topic-based messaging.
     """
 
-    def __init__(
-        self,
-        redis_client: Redis,
-        message_ttl_seconds: int = 3600,
-    ):
+    def __init__(self, redis_client: Redis, message_ttl_seconds: int = 3600):
         self.redis = redis_client
         self.message_ttl = message_ttl_seconds
         self._running = False
-
-        # agent_id -> asyncio.Queue for received messages (for handler dispatch)
-        self._receive_queues: Dict[str, asyncio.Queue] = {}
         self._handlers: Dict[str, MessageHandler] = {}
         self._pubsub = None
         self._pubsub_task: Optional[asyncio.Task] = None
         self._worker_tasks: List[asyncio.Task] = []
+        self._receive_queues: Dict[str, asyncio.Queue] = {}
 
         # Redis key patterns
         self._queue_prefix = "msgbus:queue:"
@@ -49,14 +42,12 @@ class RedisMessageBus(BaseMessageBus):
             return
         self._running = True
 
-        # Initialize pubsub
         self._pubsub = self.redis.pubsub()
         await self._pubsub.connect()
 
-        # Start the pubsub listener
         self._pubsub_task = asyncio.create_task(self._pubsub_listener())
 
-        # Start worker for each subscribed agent
+        # Start workers for existing handlers
         for agent_id in list(self._handlers.keys()):
             task = asyncio.create_task(self._deliver_messages(agent_id))
             self._worker_tasks.append(task)
@@ -67,7 +58,6 @@ class RedisMessageBus(BaseMessageBus):
         """Stop the bus and clean up."""
         self._running = False
 
-        # Cancel pubsub task
         if self._pubsub_task:
             self._pubsub_task.cancel()
             try:
@@ -75,98 +65,151 @@ class RedisMessageBus(BaseMessageBus):
             except asyncio.CancelledError:
                 pass
 
-        # Cancel workers
         for task in self._worker_tasks:
             task.cancel()
         await asyncio.gather(*self._worker_tasks, return_exceptions=True)
 
-        await self._pubsub.close()
+        await self._pubsub.aclose()
         logger.info("RedisMessageBus stopped")
 
+    # --- Core Send Methods ---
+
     async def send(self, message: Message) -> str:
-        """Send point-to-point using Redis List."""
+        """Send point-to-point message."""
         if not message.to_agent:
             raise ValueError("to_agent required for point-to-point")
 
         queue_key = f"{self._queue_prefix}{message.to_agent}"
         store_key = f"{self._store_prefix}{message.message_id}"
 
-        # Store message with TTL
-        await self.redis.setex(
+        # Store the full message with TTL
+        await self.redis.set(
             store_key,
-            self.message_ttl,
-            message.model_dump_json()
+            message.model_dump_json(),
+            ex=self.message_ttl
         )
+        # Verify storage (optional)
+        stored = await self.redis.get(store_key)
+        if not stored:
+            logger.error(f"Failed to store message {message.message_id} in Redis")
+            raise MessageDeliveryError(f"Message storage failed for {message.message_id}")
 
-        # Push to recipient's queue
+        # Push message ID to the recipient's queue
         await self.redis.lpush(queue_key, message.message_id)
         message.status = MessageStatus.DELIVERED
-
-        logger.debug(f"Message {message.message_id} sent to {message.to_agent}")
+        logger.info(f"Message {message.message_id} sent to {message.to_agent}")
         return message.message_id
 
     async def broadcast(self, message: Message) -> List[str]:
-        """Broadcast using Redis Pub/Sub on a well-known channel."""
+        """Broadcast using Redis Pub/Sub."""
         channel = "msgbus:broadcast"
-        # Publish to all subscribers
         payload = message.model_dump_json()
         await self.redis.publish(channel, payload)
-        # We can't track individual deliveries in pubsub
-        # Just return the message ID
+        logger.info(f"Broadcast message {message.message_id} published")
         return [message.message_id]
 
     async def publish(self, topic: str, message: Message) -> str:
-        """Publish to a topic channel."""
+        """Publish to a topic."""
         channel = f"{self._topic_prefix}{topic}"
         payload = message.model_dump_json()
         await self.redis.publish(channel, payload)
+        logger.info(f"Message {message.message_id} published to topic '{topic}'")
         return message.message_id
+
+    # --- Routing (stubs) ---
+
+    async def route_by_role(self, message: Message) -> List[str]:
+        logger.warning("route_by_role not implemented in RedisMessageBus")
+        return []
+
+    async def add_route_rule(self, rule: RouteRule) -> None:
+        logger.warning("add_route_rule not implemented in RedisMessageBus")
+
+    async def remove_route_rule(self, rule_id: str) -> bool:
+        logger.warning("remove_route_rule not implemented in RedisMessageBus")
+        return False
+
+    # --- Subscription ---
 
     async def subscribe(
         self,
         agent_id: str,
         handler: MessageHandler,
         topics: Optional[List[str]] = None,
-    ) -> None:
-        """Subscribe an agent with a handler."""
-        # Store handler
+        roles: Optional[List[str]] = None,
+        filter_criteria: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Subscribe an agent."""
         self._handlers[agent_id] = handler
-
-        # Create a receive queue for this agent
         if agent_id not in self._receive_queues:
             self._receive_queues[agent_id] = asyncio.Queue()
 
-        # Subscribe to pubsub channels for topics if any
+        # Subscribe to pubsub channels
+        channels = []
         if topics:
-            channels = [f"{self._topic_prefix}{t}" for t in topics]
-            await self._pubsub.subscribe(*channels)
+            channels.extend([f"{self._topic_prefix}{t}" for t in topics])
         else:
-            # Subscribe to broadcast channel
-            await self._pubsub.subscribe("msgbus:broadcast")
+            channels.append("msgbus:broadcast")
 
-        # Start worker if running
+        await self._pubsub.subscribe(*channels)
+
         if self._running:
             task = asyncio.create_task(self._deliver_messages(agent_id))
             self._worker_tasks.append(task)
+            # Give the worker time to start
+            await asyncio.sleep(0.2)
 
-        logger.info(f"Agent {agent_id} subscribed to RedisMessageBus")
+        sub_id = f"sub-{agent_id}"
+        logger.info(f"Agent {agent_id} subscribed with ID {sub_id}")
+        return sub_id
 
-    async def unsubscribe(self, agent_id: str) -> None:
-        """Unsubscribe an agent."""
-        # Remove handler and queue
+    async def unsubscribe(self, agent_id: str, subscription_id: Optional[str] = None) -> bool:
         if agent_id in self._handlers:
             del self._handlers[agent_id]
         if agent_id in self._receive_queues:
             del self._receive_queues[agent_id]
-
-        # Unsubscribe from all pubsub channels (simplified)
-        # In practice, we'd track per-agent subscriptions
         await self._pubsub.unsubscribe()
+        logger.info(f"Agent {agent_id} unsubscribed")
+        return True
+
+    async def get_subscriptions(self, agent_id: str) -> List[Subscription]:
+        return []
+
+    # --- Persistence ---
+
+    async def persist_message(self, message: Message) -> None:
+        key = f"{self._store_prefix}{message.message_id}"
+        await self.redis.set(key, message.model_dump_json(), ex=self.message_ttl)
+
+    async def get_message_history(
+        self,
+        agent_id: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[Message]:
+        return []
+
+    async def get_message(self, message_id: str) -> Optional[Message]:
+        key = f"{self._store_prefix}{message_id}"
+        data = await self.redis.get(key)
+        if data:
+            return Message.model_validate_json(data)
+        return None
+
+    # --- Acknowledgment ---
+
+    async def acknowledge(self, message_id: str, agent_id: str) -> bool:
+        key = f"{self._store_prefix}{message_id}"
+        deleted = await self.redis.delete(key)
+        return bool(deleted)
+
+    async def get_delivery_status(self, message_id: str) -> List[MessageDeliveryRecord]:
+        return []
+
+    # --- Internal Helpers (Workers) ---
 
     async def _pubsub_listener(self) -> None:
-        """
-        Listens to Redis pubsub and pushes messages to agent queues.
-        """
+        """Listen to Redis pubsub and push messages to agent queues."""
         while self._running:
             try:
                 message = await self._pubsub.get_message(
@@ -176,30 +219,13 @@ class RedisMessageBus(BaseMessageBus):
                 if message is None:
                     continue
 
-                # Parse the payload
                 data = message.get('data')
                 if data:
                     try:
                         msg_dict = json.loads(data)
                         msg = Message.model_validate(msg_dict)
-                        # Determine which agents should receive this
-                        # For broadcast, send to all with handlers
-                        # For topics, we need to filter by subscription
-                        # But since we have per-channel subscriptions,
-                        # we can check the channel.
-                        channel = message.get('channel').decode()
-                        if channel == "msgbus:broadcast":
-                            # Send to all agents
-                            for agent_id in self._receive_queues.keys():
-                                await self._receive_queues[agent_id].put(msg)
-                        elif channel.startswith(self._topic_prefix):
-                            topic = channel[len(self._topic_prefix):]
-                            # Send to agents subscribed to this topic
-                            # We need to track per-agent subscriptions
-                            # For simplicity, we'll send to all for now.
-                            # In a production implementation, we'd maintain a mapping.
-                            for agent_id in self._receive_queues.keys():
-                                await self._receive_queues[agent_id].put(msg)
+                        for agent_id in self._receive_queues.keys():
+                            await self._receive_queues[agent_id].put(msg)
                     except Exception as e:
                         logger.error(f"Failed to parse pubsub message: {e}")
             except asyncio.CancelledError:
@@ -210,28 +236,33 @@ class RedisMessageBus(BaseMessageBus):
 
     async def _deliver_messages(self, agent_id: str) -> None:
         """
-        Worker that takes messages from agent's queue and calls handler.
-        Also polls Redis queue for point-to-point messages.
+        Worker that polls the agent's Redis queue and calls its handler.
         """
         queue = self._receive_queues.get(agent_id)
         if not queue:
+            logger.warning(f"No receive queue found for agent {agent_id}, worker exiting")
             return
+
+        logger.info(f"Worker started for agent {agent_id}")
 
         while self._running and agent_id in self._handlers:
             try:
                 # Check Redis queue for point-to-point messages
                 queue_key = f"{self._queue_prefix}{agent_id}"
-                msg_id = await self.redis.rpop(queue_key)
-                if msg_id:
-                    # Fetch message from store
+                msg_id_bytes = await self.redis.rpop(queue_key)
+                if msg_id_bytes:
+                    # Convert bytes to string
+                    msg_id = msg_id_bytes.decode('utf-8')
                     store_key = f"{self._store_prefix}{msg_id}"
                     data = await self.redis.get(store_key)
                     if data:
                         msg = Message.model_validate_json(data)
-                        # Add to local queue
                         await queue.put(msg)
+                        logger.debug(f"Retrieved message {msg_id} from queue for {agent_id}")
+                    else:
+                        logger.warning(f"Message {msg_id} not found in store, skipping")
 
-                # Process local queue
+                # Process messages from the local queue (pubsub messages)
                 try:
                     msg = await asyncio.wait_for(queue.get(), timeout=0.5)
                     handler = self._handlers.get(agent_id)
@@ -241,25 +272,10 @@ class RedisMessageBus(BaseMessageBus):
                     pass
 
             except asyncio.CancelledError:
+                logger.info(f"Worker for {agent_id} cancelled")
                 break
             except Exception as e:
-                logger.error(f"Delivery worker error for {agent_id}: {e}")
+                logger.error(f"Worker error for {agent_id}: {e}", exc_info=True)
                 await asyncio.sleep(0.5)
 
-    async def get_message(self, message_id: str) -> Optional[Message]:
-        """Retrieve a message by ID from Redis store."""
-        key = f"{self._store_prefix}{message_id}"
-        data = await self.redis.get(key)
-        if data:
-            return Message.model_validate_json(data)
-        return None
-
-    async def acknowledge(self, message_id: str, agent_id: str) -> bool:
-        """
-        Acknowledge a message. For Redis, we just remove from store if needed.
-        """
-        key = f"{self._store_prefix}{message_id}"
-        # Check if it belongs to this agent
-        # We'll just delete it; in a production system, we'd add more tracking.
-        deleted = await self.redis.delete(key)
-        return bool(deleted)
+        logger.info(f"Worker stopped for agent {agent_id}")

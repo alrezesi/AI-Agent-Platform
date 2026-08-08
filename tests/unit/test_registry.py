@@ -2,6 +2,7 @@
 # Unit tests for Agent Registry implementations
 
 import pytest
+import asyncio
 from datetime import datetime, timedelta
 
 from src.agent_platform.core.agent import AgentRecord, AgentStatus, AgentCapability
@@ -56,9 +57,13 @@ async def test_discover_by_capability(registry):
 @pytest.mark.asyncio
 async def test_cleanup_stale(registry):
     agent = AgentRecord(agent_id="stale", name="Stale")
-    # Manually set last_heartbeat to old time
-    agent.last_heartbeat = datetime.utcnow() - timedelta(seconds=100)
+    # Register agent normally
     await registry.register(agent)
+
+    # Manually set the heartbeat to a stale value in the internal dictionary
+    # This bypasses the register method which would reset the timestamp
+    async with registry._lock:
+        registry._agents["stale"].last_heartbeat = datetime.utcnow() - timedelta(seconds=100)
 
     removed = await registry.cleanup_stale(ttl_seconds=30)
     assert removed == 1

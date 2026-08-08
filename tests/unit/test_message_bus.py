@@ -155,3 +155,52 @@ async def test_acknowledge(bus):
 
     assert ack_received is True
     # Check message status if we implement it
+
+
+
+def test_message_validator_response_validation():
+    from src.agent_platform.message_bus.validator import MessageValidator
+
+    # Valid response
+    msg = Message(
+        from_agent="a1",
+        to_agent="a2",
+        type=MessageType.RESPONSE,
+        content={"result": "ok"},
+        correlation_id="corr123",
+    )
+    assert MessageValidator.is_valid(msg) is True
+
+    # Missing correlation_id
+    msg2 = Message(
+        from_agent="a1", to_agent="a2", type=MessageType.RESPONSE, content={"result": "ok"}
+    )
+    assert MessageValidator.is_valid(msg2) is False
+
+
+def test_message_validator_broadcast_validation():
+    from src.agent_platform.message_bus.validator import MessageValidator
+
+    # Valid broadcast
+    msg = Message(
+        from_agent="a1", to_agent=None, type=MessageType.BROADCAST, content={"info": "hello"}
+    )
+    assert MessageValidator.is_valid(msg) is True
+
+    # Invalid: broadcast with specific target
+    msg2 = Message(
+        from_agent="a1", to_agent="a2", type=MessageType.BROADCAST, content={"info": "hello"}
+    )
+    assert MessageValidator.is_valid(msg2) is False
+
+
+def test_message_validator_command_validation():
+    from src.agent_platform.message_bus.validator import MessageValidator
+
+    # Valid command
+    msg = Message(from_agent="a1", to_agent="a2", type=MessageType.COMMAND, content={"cmd": "do"})
+    assert MessageValidator.is_valid(msg) is True
+
+    # Invalid: missing target
+    msg2 = Message(from_agent="a1", to_agent=None, type=MessageType.COMMAND, content={"cmd": "do"})
+    assert MessageValidator.is_valid(msg2) is False

@@ -1,4 +1,4 @@
-# tests/unit/test_monitoring.py
+
 # Unit tests for monitoring components
 
 import pytest
@@ -18,17 +18,17 @@ async def test_metric_registry():
     # Counter
     await registry.increment_counter("test_counter")
     await registry.increment_counter("test_counter", value=5)
-    counter = registry.counter("test_counter")
+    counter = await registry.counter("test_counter")  # <-- اضافه شدن await
     assert counter.value == 6
 
     # Gauge
     await registry.set_gauge("test_gauge", 42.0)
-    gauge = registry.gauge("test_gauge")
+    gauge = await registry.gauge("test_gauge")  # <-- اضافه شدن await
     assert gauge.value == 42.0
 
     # Histogram
     await registry.record_histogram("test_histogram", 0.5)
-    hist = registry.histogram("test_histogram")
+    hist = await registry.histogram("test_histogram")  # <-- اضافه شدن await
     assert hist.sum == 0.5
 
 

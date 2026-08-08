@@ -1,10 +1,154 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>$Title$</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Agent Platform - Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { color: #1a1a2e; margin-bottom: 20px; font-size: 28px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .refresh-btn { background: #1a1a2e; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
+        .refresh-btn:hover { background: #2d2d44; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 20px; }
+        .card { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .card h3 { color: #555; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+        .card .value { font-size: 32px; font-weight: bold; color: #1a1a2e; }
+        .card .sub { font-size: 14px; color: #888; margin-top: 5px; }
+        .status-ok { color: #4caf50; }
+        .status-warning { color: #ff9800; }
+        .status-error { color: #f44336; }
+        .table-container { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 10px 15px; text-align: left; border-bottom: 1px solid #e0e0e0; }
+        th { background: #f8f9fa; font-weight: 600; color: #555; }
+        tr:hover { background: #f8f9fa; }
+        .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+        .badge-active { background: #e8f5e9; color: #2e7d32; }
+        .badge-inactive { background: #fce4ec; color: #c62828; }
+        .badge-paused { background: #fff3e0; color: #e65100; }
+        .badge-running { background: #e3f2fd; color: #0d47a1; }
+        .badge-completed { background: #e8f5e9; color: #2e7d32; }
+        .badge-failed { background: #fce4ec; color: #c62828; }
+        .badge-pending { background: #fff8e1; color: #f57f17; }
+        .loading { opacity: 0.6; pointer-events: none; }
+    </style>
 </head>
 <body>
-$END$
+<div class="container">
+    <div class="header">
+        <h1>📊 AI Agent Platform Dashboard</h1>
+        <button class="refresh-btn" onclick="refreshData()">🔄 Refresh</button>
+    </div>
+
+    <!-- Metrics Cards -->
+    <div class="grid" id="metricsGrid">
+        <div class="card"><h3>🟢 System Status</h3><div class="value status-ok" id="statusValue">Loading...</div><div class="sub" id="uptimeValue">Uptime: --</div></div>
+        <div class="card"><h3>🤖 Agents</h3><div class="value" id="agentCount">--</div><div class="sub" id="agentDetail">Active: --</div></div>
+        <div class="card"><h3>📋 Tasks</h3><div class="value" id="taskCount">--</div><div class="sub" id="taskDetail">Pending: --</div></div>
+        <div class="card"><h3>📊 Task Stats</h3><div class="value" id="taskStatsCount">--</div><div class="sub" id="taskStatsDetail">Completed: --</div></div>
+    </div>
+
+    <!-- Agents Table -->
+    <div class="card" style="margin-bottom: 20px;">
+        <h3>🤖 Agents</h3>
+        <div class="table-container">
+            <table id="agentsTable">
+                <thead><tr><th>ID</th><th>Name</th><th>Status</th><th>Capabilities</th><th>Last Heartbeat</th></tr></thead>
+                <tbody id="agentsBody"><tr><td colspan="5">Loading agents...</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Tasks Table -->
+    <div class="card">
+        <h3>📋 Tasks</h3>
+        <div class="table-container">
+            <table>
+                <thead><tr><th>Status</th><th>Count</th></tr></thead>
+                <tbody id="tasksBody">
+                    <tr><td>Pending</td><td id="taskPending">--</td></tr>
+                    <tr><td>Running</td><td id="taskRunning">--</td></tr>
+                    <tr><td>Completed</td><td id="taskCompleted">--</td></tr>
+                    <tr><td>Failed</td><td id="taskFailed">--</td></tr>
+                    <tr><td>Cancelled</td><td id="taskCancelled">--</td></tr>
+                    <tr><td>Timeout</td><td id="taskTimeout">--</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    async function fetchData() {
+        try {
+            const [status, agents, tasks, metrics] = await Promise.all([
+                fetch('/monitoring/status').then(r => r.json()),
+                fetch('/monitoring/agents').then(r => r.json()),
+                fetch('/monitoring/tasks').then(r => r.json()),
+                fetch('/monitoring/metrics').then(r => r.json()),
+            ]);
+
+            // Update status card
+            document.getElementById('statusValue').textContent = status.status?.toUpperCase() || 'UNKNOWN';
+            document.getElementById('statusValue').className = `value status-${status.status === 'healthy' ? 'ok' : 'warning'}`;
+            document.getElementById('uptimeValue').textContent = `Uptime: ${Math.round(status.uptime_seconds || 0)}s`;
+
+            // Update agent card
+            document.getElementById('agentCount').textContent = status.agents?.total || 0;
+            document.getElementById('agentDetail').textContent = `Active: ${status.agents?.active || 0}`;
+
+            // Update task card
+            document.getElementById('taskCount').textContent = status.tasks?.submitted || 0;
+            document.getElementById('taskDetail').textContent = `Pending: ${status.tasks?.pending || 0}`;
+
+            // Update task stats card
+            document.getElementById('taskStatsCount').textContent = tasks.total || 0;
+            document.getElementById('taskStatsDetail').textContent = `Completed: ${tasks.completed || 0}`;
+
+            // Update agents table
+            const agentsBody = document.getElementById('agentsBody');
+            if (agents && agents.length > 0) {
+                agentsBody.innerHTML = agents.map(a => `
+                    <tr>
+                        <td><code>${a.agent_id}</code></td>
+                        <td>${a.name}</td>
+                        <td><span class="badge badge-${a.status}">${a.status}</span></td>
+                        <td>${(a.capabilities || []).join(', ')}</td>
+                        <td>${new Date(a.last_heartbeat).toLocaleString()}</td>
+                    </tr>
+                `).join('');
+            } else {
+                agentsBody.innerHTML = '<tr><td colspan="5">No agents registered</td></tr>';
+            }
+
+            // Update tasks stats
+            document.getElementById('taskPending').textContent = tasks.pending || 0;
+            document.getElementById('taskRunning').textContent = tasks.running || 0;
+            document.getElementById('taskCompleted').textContent = tasks.completed || 0;
+            document.getElementById('taskFailed').textContent = tasks.failed || 0;
+            document.getElementById('taskCancelled').textContent = tasks.cancelled || 0;
+            document.getElementById('taskTimeout').textContent = tasks.timeout || 0;
+
+        } catch (error) {
+            console.error('Error fetching data:', error);
+        }
+    }
+
+    function refreshData() {
+        document.querySelector('.container').classList.add('loading');
+        fetchData().finally(() => {
+            document.querySelector('.container').classList.remove('loading');
+        });
+    }
+
+    // Auto-refresh every 10 seconds
+    setInterval(refreshData, 10000);
+
+    // Initial load
+    refreshData();
+</script>
 </body>
 </html>

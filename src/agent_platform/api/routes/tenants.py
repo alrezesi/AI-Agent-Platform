@@ -1,8 +1,8 @@
 
 # REST API endpoints for tenant management
 
-from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Depends, Request
+from typing import Optional
+from fastapi import APIRouter, HTTPException, Depends, Body, Query
 
 from src.agent_platform.multi_tenant.manager import TenantManager
 from src.agent_platform.multi_tenant.models import Tenant, TenantQuota
@@ -13,20 +13,18 @@ router = APIRouter(prefix="/tenants", tags=["tenants"])
 
 # Dependency: get tenant manager
 def get_tenant_manager() -> TenantManager:
-    # In production, this would be injected via DI
     from src.agent_platform.multi_tenant.manager import TenantManager
-    # Simple in-memory storage
     class Storage:
         _tenants = {}
     return TenantManager(Storage())
 
 
-@router.post("/")
+@router.post("/", response_model=Tenant)
 async def create_tenant(
-    name: str,
-    description: Optional[str] = None,
-    quota: Optional[TenantQuota] = None,
-    config: Optional[dict] = None,
+    name: str = Body(...),
+    description: Optional[str] = Body(None),
+    quota: Optional[TenantQuota] = Body(None),
+    config: Optional[dict] = Body(None),
     manager: TenantManager = Depends(get_tenant_manager),
 ):
     """Create a new tenant."""
@@ -34,7 +32,7 @@ async def create_tenant(
     return tenant
 
 
-@router.get("/{tenant_id}")
+@router.get("/{tenant_id}", response_model=Tenant)
 async def get_tenant(
     tenant_id: str,
     manager: TenantManager = Depends(get_tenant_manager),
@@ -46,10 +44,10 @@ async def get_tenant(
     return tenant
 
 
-@router.put("/{tenant_id}")
+@router.put("/{tenant_id}", response_model=Tenant)
 async def update_tenant(
     tenant_id: str,
-    updates: dict,
+    updates: dict = Body(...),
     manager: TenantManager = Depends(get_tenant_manager),
 ):
     """Update a tenant."""
@@ -88,7 +86,7 @@ async def generate_api_key(
 @router.delete("/{tenant_id}/api-keys")
 async def revoke_api_key(
     tenant_id: str,
-    api_key: str,
+    api_key: str = Query(..., description="API key to revoke"),  # <-- Changed from Body to Query
     manager: TenantManager = Depends(get_tenant_manager),
 ):
     """Revoke an API key for a tenant."""

@@ -1,4 +1,4 @@
-
+# src/agent_platform/workflow/executor.py
 # Workflow executor: runs steps with dependencies, parallel execution, pause/resume
 
 import asyncio
@@ -80,14 +80,35 @@ class WorkflowExecutor:
                 if tasks:
                     await asyncio.gather(*tasks, return_exceptions=True)
 
-                # After executing steps, check for failures
+                # After executing steps, check for failures with fallback handling
+                workflow_failed = False
+                failed_step_id = None
                 for step in self.state.workflow.steps:
-                    if self.state.get_step_status(step.step_id) == StepStatus.FAILED:
-                        # If any step failed, we may want to handle it
-                        # For now, mark workflow as failed
-                        self.state.fail()
-                        logger.error(f"Workflow failed due to step {step.step_id}")
-                        break
+                    step_status = self.state.get_step_status(step.step_id)
+                    if step_status == StepStatus.FAILED:
+                        # Check if this step has a fallback that succeeded
+                        fallback_step_id = step.fallback_step_id
+                        if fallback_step_id:
+                            fallback_status = self.state.get_step_status(fallback_step_id)
+                            if fallback_status == StepStatus.COMPLETED:
+                                # Fallback succeeded, treat this step as completed
+                                self.state.set_step_status(step.step_id, StepStatus.COMPLETED)
+                                logger.info(f"Step {step.step_id} marked as completed because fallback succeeded")
+                                continue
+                            else:
+                                # Fallback failed or not run, workflow fails
+                                workflow_failed = True
+                                failed_step_id = step.step_id
+                                break
+                        else:
+                            workflow_failed = True
+                            failed_step_id = step.step_id
+                            break
+
+                if workflow_failed:
+                    self.state.fail()
+                    logger.error(f"Workflow failed due to step {failed_step_id}")
+                    break
 
         except asyncio.CancelledError:
             # If cancelled, pause the workflow

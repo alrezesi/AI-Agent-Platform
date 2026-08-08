@@ -1,5 +1,5 @@
 
-# Redis-backed task queue using Sorted Set for priority and Hash for task storage
+# Redis-backed task queue using Sorted Set for priority and task storage
 
 import json
 from typing import Optional, List
@@ -16,71 +16,97 @@ class RedisTaskQueue(BaseTaskQueue):
     """
     Redis-backed queue.
     - Sorted Set 'tasks:queue' with score = priority (lower is higher)
-    - Hash 'tasks:data:{task_id}' for full task JSON
-    - Key 'tasks:meta:{task_id}' for status tracking
+    - String key 'tasks:data:{task_id}' for full task JSON
+    - String key 'tasks:meta:{task_id}' for status tracking
     """
 
     QUEUE_KEY = "tasks:queue"
+    TASK_PREFIX = "tasks:data:"
+    META_PREFIX = "tasks:meta:"
 
-    def __init__(self, redis_client: Redis):
+    def __init__(self, redis_client: Redis, ttl_seconds: int = 86400):
         self.redis = redis_client
+        self.ttl_seconds = ttl_seconds
 
     def _priority_score(self, task: Task) -> float:
-        # Lower number = higher priority.
-        # Use priority value (0=CRITICAL, 3=LOW) plus fractional part for FIFO.
+        # Lower priority value = higher priority
         return task.priority.value + (task.created_at.timestamp() % 1)
 
     def _task_key(self, task_id: str) -> str:
-        return f"tasks:data:{task_id}"
+        return f"{self.TASK_PREFIX}{task_id}"
 
     def _meta_key(self, task_id: str) -> str:
-        return f"tasks:meta:{task_id}"
+        return f"{self.META_PREFIX}{task_id}"
 
     async def enqueue(self, task: Task) -> None:
+        """Add a task to the queue."""
         task.status = TaskStatus.PENDING
+
         await self.redis.set(
             self._task_key(task.task_id),
             task.model_dump_json(),
-            ex=86400,
+            ex=self.ttl_seconds
         )
         await self.redis.set(
             self._meta_key(task.task_id),
             json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
-            ex=86400,
+            ex=self.ttl_seconds,
         )
         score = self._priority_score(task)
         await self.redis.zadd(self.QUEUE_KEY, {task.task_id: score})
 
     async def dequeue(self) -> Optional[Task]:
+        """
+        Pop the highest priority task from the queue.
+        Uses atomic ZPOPMIN for distributed safety.
+        """
         result = await self.redis.zpopmin(self.QUEUE_KEY, count=1)
         if not result:
             return None
-        task_id = result[0][0]
+
+        # result is list of tuples: [(member, score)] where member is bytes
+        task_id_bytes = result[0][0]
+        task_id = task_id_bytes.decode('utf-8') if isinstance(task_id_bytes, bytes) else task_id_bytes
+
         data = await self.redis.get(self._task_key(task_id))
         if not data:
             return None
+
         task = Task.model_validate_json(data)
         task.status = TaskStatus.RUNNING
         task.started_at = datetime.utcnow()
-        await self.redis.set(self._task_key(task_id), task.model_dump_json(), ex=86400)
+
+        # Update stored task
+        await self.redis.set(
+            self._task_key(task_id),
+            task.model_dump_json(),
+            ex=self.ttl_seconds
+        )
         await self.redis.set(
             self._meta_key(task_id),
             json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
-            ex=86400,
+            ex=self.ttl_seconds,
         )
         return task
 
     async def peek(self) -> Optional[Task]:
+        """
+        Peek at the next task without removing it.
+        """
         result = await self.redis.zrange(self.QUEUE_KEY, 0, 0, withscores=True)
         if not result:
             return None
-        task_id = result[0][0]
+        # result is list of tuples: [(member, score)] where member is bytes
+        task_id_bytes = result[0][0]
+        task_id = task_id_bytes.decode('utf-8') if isinstance(task_id_bytes, bytes) else task_id_bytes
+
         data = await self.redis.get(self._task_key(task_id))
         if not data:
             return None
         return Task.model_validate_json(data)
 
     async def cancel(self, task_id: str, tenant_id: Optional[str] = None) -> bool:
+        """Cancel a pending task."""
         data = await self.redis.get(self._task_key(task_id))
         if not data:
             return False
@@ -89,17 +115,18 @@ class RedisTaskQueue(BaseTaskQueue):
             return False
         if task.status not in (TaskStatus.PENDING, TaskStatus.SCHEDULED):
             return False
+
         await self.redis.zrem(self.QUEUE_KEY, task_id)
         task.status = TaskStatus.CANCELLED
-        await self.redis.set(self._task_key(task_id), task.model_dump_json(), ex=86400)
         await self.redis.set(
-            self._meta_key(task_id),
-            json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
-            ex=86400,
+            self._task_key(task_id),
+            task.model_dump_json(),
+            ex=self.ttl_seconds
         )
         return True
 
     async def get_task(self, task_id: str, tenant_id: Optional[str] = None) -> Optional[Task]:
+        """Retrieve a task by ID."""
         data = await self.redis.get(self._task_key(task_id))
         if not data:
             return None
@@ -114,10 +141,11 @@ class RedisTaskQueue(BaseTaskQueue):
         limit: int = 100,
         offset: int = 0,
     ) -> List[Task]:
+        """List tasks with filtering and pagination."""
         cursor = 0
         keys = []
         while True:
-            cursor, batch = await self.redis.scan(cursor, match="tasks:data:*", count=100)
+            cursor, batch = await self.redis.scan(cursor, match=f"{self.TASK_PREFIX}*", count=100)
             keys.extend(batch)
             if cursor == 0:
                 break
@@ -143,17 +171,16 @@ class RedisTaskQueue(BaseTaskQueue):
         return tasks[offset:offset + limit]
 
     async def get_stats(self, tenant_id: Optional[str] = None) -> TaskStats:
+        """Get aggregated statistics for tasks."""
         cursor = 0
         keys = []
         while True:
-            cursor, batch = await self.redis.scan(cursor, match="tasks:data:*", count=100)
+            cursor, batch = await self.redis.scan(cursor, match=f"{self.TASK_PREFIX}*", count=100)
             keys.extend(batch)
             if cursor == 0:
                 break
 
-        stats = TaskStats(
-            total=0, pending=0, running=0, completed=0, failed=0, cancelled=0, timeout=0
-        )
+        stats = TaskStats(total=0, pending=0, running=0, completed=0, failed=0, cancelled=0, timeout=0)
         for key in keys:
             data = await self.redis.get(key)
             if not data:
@@ -177,17 +204,18 @@ class RedisTaskQueue(BaseTaskQueue):
         return stats
 
     async def size(self) -> int:
+        """Get the number of pending tasks in the queue."""
         return await self.redis.zcard(self.QUEUE_KEY)
 
     async def update_task(self, task: Task) -> None:
-        """Update an existing task in Redis store."""
+        """Update an existing task in the store."""
         await self.redis.set(
             self._task_key(task.task_id),
             task.model_dump_json(),
-            ex=86400
+            ex=self.ttl_seconds
         )
         await self.redis.set(
             self._meta_key(task.task_id),
             json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
-            ex=86400,
+            ex=self.ttl_seconds,
         )

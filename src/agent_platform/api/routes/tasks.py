@@ -1,8 +1,8 @@
-
+# src/agent_platform/api/routes/tasks.py
 # REST API endpoints for task management
 
-from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Query, Depends
+from typing import Optional
+from fastapi import APIRouter, HTTPException, Query, Depends, Body
 
 from src.agent_platform.core.task import TaskPriority, TaskStatus
 from src.agent_platform.scheduler.scheduler import TaskScheduler
@@ -13,20 +13,19 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 # Dependency: get scheduler instance (will be injected in main app)
 def get_scheduler() -> TaskScheduler:
-    # For now, use a global placeholder. Will be replaced with proper DI later.
     from src.agent_platform.scheduler.in_memory import InMemoryTaskQueue
     return TaskScheduler(InMemoryTaskQueue())
 
 
 @router.post("/")
 async def submit_task(
-    agent_id: str,
-    task_type: str,
-    payload: dict,
-    priority: TaskPriority = TaskPriority.MEDIUM,
-    timeout_seconds: int = 30,
-    max_retries: int = 3,
-    tenant_id: Optional[str] = None,
+    agent_id: str = Body(...),
+    task_type: str = Body(...),
+    payload: dict = Body(...),
+    priority: TaskPriority = Body(TaskPriority.MEDIUM),
+    timeout_seconds: int = Body(30),
+    max_retries: int = Body(3),
+    tenant_id: Optional[str] = Body(None),
     scheduler: TaskScheduler = Depends(get_scheduler),
 ):
     """Submit a new task."""

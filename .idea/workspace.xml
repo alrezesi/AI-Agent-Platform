@@ -1,33 +1,95 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="ALL" />
+  </component>
   <component name="ChangeListManager">
-    <list default="true" id="3de2eebe-8eaf-4bb1-bbb6-6a62edd138d2" name="Changes" comment="" />
+    <list default="true" id="3de2eebe-8eaf-4bb1-bbb6-6a62edd138d2" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/tests/integration/test_redis_queue.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/integration/test_redis_registry.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/integration/test_redis_registry_advanced.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/unit/authentication.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/unit/test_multi_tenant_middleware.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/unit/test_routing.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/ai-agent-platform.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/ai-agent-platform.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docker-compose.yml" beforeDir="false" afterPath="$PROJECT_DIR$/docker-compose.yml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/api/routes/tasks.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/api/routes/tasks.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/api/routes/tenants.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/api/routes/tenants.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/core/task.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/core/task.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/message_bus/redis_bus.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/message_bus/redis_bus.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/message_bus/routing.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/message_bus/routing.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/monitoring/templates/templates.html" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/monitoring/templates/templates.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/plugins/discovery.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/plugins/discovery.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/registry/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/registry/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/scheduler/redis_queue.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/scheduler/redis_queue.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/workflow/examples/simple_workflow.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/workflow/examples/simple_workflow.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/workflow/executor.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/workflow/executor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/e2e/test_workflow.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/e2e/test_workflow_e2e.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/integration/test_api.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/integration/test_api.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/integration/test_postgres_registry.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/integration/test_postgres_registry.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/integration/test_redis_message_bus.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/integration/test_redis_message_bus.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/unit/test_a2a.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_a2a.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/unit/test_core_models.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_core_models.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/unit/test_distributed.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_distributed.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/unit/test_engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_engine.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/unit/test_message_bus.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_message_bus.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/unit/test_monitoring.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_monitoring.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/unit/test_multi_tenant.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_multi_tenant.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/unit/test_plugins.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_plugins.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/unit/test_registry.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_registry.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/unit/test_workflow.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_workflow.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Python Script" />
+      </list>
+    </option>
+  </component>
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "associatedIndex": 7,
-  "fromUser": false
-}]]></component>
+  <component name="ProblemsViewState">
+    <option name="selectedTabId" value="CurrentFile" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 7,
+  &quot;fromUser&quot;: false
+}</component>
   <component name="ProjectId" id="3HJ5Xl1X5UD2QUq7jKjhY2Yo1QP" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "codeWithMe.voiceChat.enabledByDefault": "false",
-    "git-widget-placeholder": "master"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
+    &quot;node.js.detected.package.jshint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.jshint&quot;: &quot;&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;
   }
-}]]></component>
+}</component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\Users\Alireza\PycharmProjects\AI-Agent-Platform\tests\integration" />
+      <recent name="C:\Users\Alireza\PycharmProjects\AI-Agent-Platform\src\agent_platform\multi_tenant" />
+      <recent name="C:\Users\Alireza\PycharmProjects\AI-Agent-Platform\src\agent_platform\tools" />
+      <recent name="C:\Users\Alireza\PycharmProjects\AI-Agent-Platform\src\agent_platform\engine" />
+      <recent name="C:\Users\Alireza\PycharmProjects\AI-Agent-Platform\tests\unit" />
+    </key>
+  </component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
@@ -43,7 +105,16 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1785573376469</updated>
-      <workItem from="1785573378481" duration="8000" />
+      <workItem from="1785573378481" duration="3155000" />
+      <workItem from="1785588367588" duration="1459000" />
+      <workItem from="1785652938393" duration="11505000" />
+      <workItem from="1785671527499" duration="1819000" />
+      <workItem from="1785738758479" duration="26000" />
+      <workItem from="1785738827945" duration="5619000" />
+      <workItem from="1785746240388" duration="2402000" />
+      <workItem from="1785757441403" duration="2744000" />
+      <workItem from="1786185639762" duration="9106000" />
+      <workItem from="1786207525290" duration="4126000" />
     </task>
     <servers />
   </component>
