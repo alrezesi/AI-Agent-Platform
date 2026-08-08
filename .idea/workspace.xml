@@ -4,43 +4,7 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3de2eebe-8eaf-4bb1-bbb6-6a62edd138d2" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/tests/integration/test_redis_queue.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/integration/test_redis_registry.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/integration/test_redis_registry_advanced.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/unit/authentication.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/unit/test_multi_tenant_middleware.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/unit/test_routing.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/ai-agent-platform.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/ai-agent-platform.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docker-compose.yml" beforeDir="false" afterPath="$PROJECT_DIR$/docker-compose.yml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/agent_platform/api/routes/tasks.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/api/routes/tasks.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/agent_platform/api/routes/tenants.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/api/routes/tenants.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/agent_platform/core/task.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/core/task.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/agent_platform/message_bus/redis_bus.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/message_bus/redis_bus.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/agent_platform/message_bus/routing.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/message_bus/routing.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/agent_platform/monitoring/templates/templates.html" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/monitoring/templates/templates.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/agent_platform/plugins/discovery.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/plugins/discovery.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/agent_platform/registry/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/registry/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/agent_platform/scheduler/redis_queue.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/scheduler/redis_queue.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/agent_platform/workflow/examples/simple_workflow.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/workflow/examples/simple_workflow.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/agent_platform/workflow/executor.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/workflow/executor.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/e2e/test_workflow.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/e2e/test_workflow_e2e.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/integration/test_api.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/integration/test_api.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/integration/test_postgres_registry.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/integration/test_postgres_registry.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/integration/test_redis_message_bus.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/integration/test_redis_message_bus.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/unit/test_a2a.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_a2a.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/unit/test_core_models.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_core_models.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/unit/test_distributed.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_distributed.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/unit/test_engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_engine.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/unit/test_message_bus.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_message_bus.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/unit/test_monitoring.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_monitoring.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/unit/test_multi_tenant.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_multi_tenant.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/unit/test_plugins.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_plugins.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/unit/test_registry.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_registry.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/unit/test_workflow.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_workflow.py" afterDir="false" />
-    </list>
+    <list default="true" id="3de2eebe-8eaf-4bb1-bbb6-6a62edd138d2" name="Changes" comment="test: achieve 80% test coverage with all 146 tests passing" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -114,11 +78,24 @@
       <workItem from="1785746240388" duration="2402000" />
       <workItem from="1785757441403" duration="2744000" />
       <workItem from="1786185639762" duration="9106000" />
-      <workItem from="1786207525290" duration="4126000" />
+      <workItem from="1786207525290" duration="4644000" />
     </task>
+    <task id="LOCAL-00001" summary="test: achieve 80% test coverage with all 146 tests passing">
+      <option name="closed" value="true" />
+      <created>1786216123457</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1786216123457</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="test: achieve 80% test coverage with all 146 tests passing" />
+    <option name="LAST_COMMIT_MESSAGE" value="test: achieve 80% test coverage with all 146 tests passing" />
   </component>
 </project>
