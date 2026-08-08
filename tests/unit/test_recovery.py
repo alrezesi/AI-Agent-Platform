@@ -1,4 +1,4 @@
-# tests/unit/test_recovery.py
+
 # Unit tests for recovery components
 
 import pytest
@@ -163,3 +163,40 @@ async def test_idempotency():
     result = await manager.get_result(key)
     assert result == "result"
     assert await manager.is_completed(key) is True
+
+# تست replay با handler ناموفق
+@pytest.mark.asyncio
+async def test_dead_letter_replay_failure():
+    dlq = DeadLetterQueue()
+    entry_id = await dlq.add(
+        source="test",
+        data={"msg": "hello"},
+        reason=DeadLetterReason.MAX_RETRIES_EXCEEDED,
+    )
+
+    async def failing_handler(data):
+        raise ValueError("Replay failed")
+
+    success = await dlq.replay(entry_id, failing_handler)
+    assert success is False
+
+    # Entry should still exist
+    entry = await dlq.get_entry(entry_id)
+    assert entry is not None
+    assert entry.retry_count == 1
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_cleanup():
+    store = InMemoryCheckpointStore()
+    manager = CheckpointManager(store)
+
+    # Create 15 checkpoints
+    for i in range(15):
+        await manager.create_checkpoint("wf1", {"step": i})
+
+    removed = await manager.cleanup_old_checkpoints("wf1", keep=10)
+    assert removed == 5
+
+    checkpoints = await store.list_checkpoints("wf1")
+    assert len(checkpoints) == 10
