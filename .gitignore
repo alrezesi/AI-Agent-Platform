@@ -1,0 +1,87 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env/
+.venv.bak/
+env.bak/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE and Editor files
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Testing and Coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.cache/
+coverage.xml
+*.cover
+
+# Build and Distribution
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+wheels/
+share/python-wheels/
+
+# Logs
+logs/
+*.log
+
+# Database files (local SQLite)
+*.db
+*.sqlite
+*.sqlite3
+postgres_data/
+
+# Docker (if running locally)
+*.pid
+*.sock
+*.socket
+
+# PyCharm specific
+.idea/inspectionProfiles/
+.idea/modules.xml
+.idea/workspace.xml
+.idea/misc.xml
+.idea/ai-agent-platform.iml
+
+# OS generated
+.directory
+~$*
+
+# mypy
+.mypy_cache/
+
+# pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# profiling data
+.prof
