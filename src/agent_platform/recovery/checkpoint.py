@@ -4,6 +4,7 @@
 import json
 import asyncio
 import logging
+import uuid
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from dataclasses import dataclass, field
@@ -99,7 +100,7 @@ class CheckpointManager:
         """
         Create a new checkpoint.
         """
-        checkpoint_id = f"chk-{workflow_id}-{datetime.utcnow().timestamp()}"
+        checkpoint_id = f"chk-{workflow_id}-{datetime.utcnow().timestamp()}-{uuid.uuid4().hex[:8]}"
         checkpoint = Checkpoint(
             checkpoint_id=checkpoint_id,
             workflow_id=workflow_id,
