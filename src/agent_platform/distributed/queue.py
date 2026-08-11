@@ -3,10 +3,18 @@
 
 import json
 import asyncio
-from typing import Optional, List, Dict, Any
+from typing import Any, Optional, List, Dict, TYPE_CHECKING
 from datetime import datetime
 
-from redis.asyncio import Redis
+try:
+    from redis.asyncio import Redis
+except ImportError:  # pragma: no cover - optional dependency
+    Redis = Any
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis as RedisClient
+else:
+    RedisClient = Any
 
 from src.agent_platform.core.task import Task, TaskStatus
 from src.agent_platform.scheduler.base import BaseTaskQueue
@@ -25,7 +33,7 @@ class DistributedTaskQueue(BaseTaskQueue):
     META_PREFIX = "dist:tasks:meta:"
     STATS_KEY = "dist:tasks:stats"
 
-    def __init__(self, redis_client: Redis, ttl_seconds: int = 86400):
+    def __init__(self, redis_client: RedisClient, ttl_seconds: int = 86400):
         self.redis = redis_client
         self.ttl_seconds = ttl_seconds
 
