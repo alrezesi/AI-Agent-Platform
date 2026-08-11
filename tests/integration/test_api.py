@@ -47,7 +47,8 @@ def test_health_check(client):
 def test_root(client):
     response = client.get("/")
     assert response.status_code == 200
-    assert "AI Agent Platform" in response.json()["message"]
+    assert "AI Agent Platform" in response.text
+    assert response.headers["content-type"].startswith("text/html")
 
 
 def test_monitoring_status(client):

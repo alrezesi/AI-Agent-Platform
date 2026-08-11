@@ -2,7 +2,7 @@
 # FastAPI application entrypoint
 
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -27,7 +27,35 @@ async def health_check():
 
 @app.get("/")
 async def root():
-    return {"message": "AI Agent Platform is running", "docs": "/docs"}
+    return HTMLResponse(
+        """
+        <!doctype html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>AI Agent Platform</title>
+            <style>
+              body { font-family: system-ui, sans-serif; margin: 3rem; line-height: 1.5; }
+              a { display: inline-block; margin-right: 1rem; margin-top: 0.5rem; }
+              code { background: #f4f4f4; padding: 0.15rem 0.35rem; border-radius: 4px; }
+            </style>
+          </head>
+          <body>
+            <h1>AI Agent Platform</h1>
+            <p>The API is running.</p>
+            <p>Open one of these pages:</p>
+            <p>
+              <a href="/docs">API Docs</a>
+              <a href="/redoc">ReDoc</a>
+              <a href="/monitoring/dashboard">Monitoring Dashboard</a>
+              <a href="/health">Health Check</a>
+            </p>
+            <p>Base URL: <code>/</code></p>
+          </body>
+        </html>
+        """
+    )
 
 
 # Serve static files for dashboard (optional)
