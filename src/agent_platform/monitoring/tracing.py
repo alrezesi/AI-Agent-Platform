@@ -25,7 +25,7 @@ class TraceSpan:
     trace_id: str
     name: str
     parent_span_id: Optional[str] = None
-    start_time: float = field(default_factory=time.time)
+    start_time: float = field(default_factory=time.perf_counter)
     end_time: Optional[float] = None
     attributes: Dict[str, Any] = field(default_factory=dict)
     events: List[Dict[str, Any]] = field(default_factory=list)
@@ -33,13 +33,13 @@ class TraceSpan:
 
     def end(self) -> None:
         """End the span."""
-        self.end_time = time.time()
+        self.end_time = time.perf_counter()
 
     def add_event(self, name: str, attributes: Optional[Dict[str, Any]] = None) -> None:
         """Add an event to the span."""
         self.events.append({
             "name": name,
-            "timestamp": time.time(),
+            "timestamp": time.perf_counter(),
             "attributes": attributes or {},
         })
 
@@ -56,7 +56,7 @@ class TraceSpan:
         """Get the duration of the span in milliseconds."""
         if self.end_time:
             return (self.end_time - self.start_time) * 1000
-        return (time.time() - self.start_time) * 1000
+        return (time.perf_counter() - self.start_time) * 1000
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
