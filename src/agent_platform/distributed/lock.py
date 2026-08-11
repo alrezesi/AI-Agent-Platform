@@ -4,9 +4,17 @@
 import asyncio
 import uuid
 import logging
-from typing import Optional
+from typing import Any, Optional, TYPE_CHECKING
 
-from redis.asyncio import Redis
+try:
+    from redis.asyncio import Redis
+except ImportError:  # pragma: no cover - optional dependency
+    Redis = Any
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis as RedisClient
+else:
+    RedisClient = Any
 
 from .exceptions import LockError
 
@@ -19,7 +27,7 @@ class DistributedLock:
     Supports automatic release via TTL and safe unlocking.
     """
 
-    def __init__(self, redis_client: Redis, key: str, ttl_seconds: int = 30):
+    def __init__(self, redis_client: RedisClient, key: str, ttl_seconds: int = 30):
         self.redis = redis_client
         self.key = f"dist:lock:{key}"
         self.ttl_seconds = ttl_seconds
