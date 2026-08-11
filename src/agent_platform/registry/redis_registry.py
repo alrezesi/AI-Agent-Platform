@@ -2,10 +2,18 @@
 # Redis-backed registry using async Redis client with TTL for heartbeat
 
 import json
-from typing import List, Optional
+from typing import Any, List, Optional, TYPE_CHECKING
 from datetime import datetime
 
-from redis.asyncio import Redis
+try:
+    from redis.asyncio import Redis
+except ImportError:  # pragma: no cover - optional dependency
+    Redis = Any
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis as RedisClient
+else:
+    RedisClient = Any
 
 from src.agent_platform.core.agent import AgentRecord, AgentStatus
 from src.agent_platform.registry.base import BaseAgentRegistry
@@ -18,7 +26,7 @@ class RedisAgentRegistry(BaseAgentRegistry):
     TTL is set to ttl_seconds on register and refreshed on heartbeat.
     """
 
-    def __init__(self, redis_client: Redis, ttl_seconds: int = 60):
+    def __init__(self, redis_client: RedisClient, ttl_seconds: int = 60):
         self.redis = redis_client
         self.ttl_seconds = ttl_seconds
 
