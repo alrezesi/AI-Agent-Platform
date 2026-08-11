@@ -1,26 +1,35 @@
 
 # Integration tests for PostgreSQL registry (requires Docker)
 
+import asyncio
 import pytest
+import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from src.agent_platform.registry.postgres_registry import PostgresAgentRegistry, Base
 from src.agent_platform.core.agent import AgentRecord
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def registry():
     """Create a fresh PostgreSQL registry for testing."""
+    pytest.importorskip("asyncpg")
     # Use the same credentials as in docker-compose.yml
     DATABASE_URL = "postgresql+asyncpg://user:pass@localhost:5433/agent_platform"
     engine = create_async_engine(DATABASE_URL)
 
     # Create tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
+    async def _prepare():
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+            await conn.run_sync(Base.metadata.create_all)
+
+    await _prepare()
 
     session_factory = async_sessionmaker(engine)
-    return PostgresAgentRegistry(session_factory)
+    try:
+        yield PostgresAgentRegistry(session_factory)
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio

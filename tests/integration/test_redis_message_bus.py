@@ -3,13 +3,14 @@
 
 import pytest
 import asyncio
+import pytest_asyncio
 from redis.asyncio import Redis
 
 from src.agent_platform.message_bus.redis_bus import RedisMessageBus
 from src.agent_platform.core.message import Message, MessageType
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def redis_client():
     client = Redis.from_url("redis://localhost:6379/0")
     await client.flushall()

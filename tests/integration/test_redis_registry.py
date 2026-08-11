@@ -1,13 +1,15 @@
 
 # Integration tests for Redis registry
 
+import asyncio
 import pytest
+import pytest_asyncio
 from redis.asyncio import Redis
 from src.agent_platform.registry.redis_registry import RedisAgentRegistry
 from src.agent_platform.core.agent import AgentRecord
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def redis_client():
     client = Redis.from_url("redis://localhost:6379/0")
     await client.flushall()

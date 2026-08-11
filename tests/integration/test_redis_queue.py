@@ -4,13 +4,14 @@
 import pytest
 import asyncio
 import json
+import pytest_asyncio
 from redis.asyncio import Redis
 
 from src.agent_platform.scheduler.redis_queue import RedisTaskQueue
 from src.agent_platform.core.task import Task, TaskPriority, TaskStatus
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def redis_client():
     """Create a Redis client and clean database before/after tests."""
     client = Redis.from_url("redis://localhost:6379/0")
@@ -20,7 +21,7 @@ async def redis_client():
     await client.aclose()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def queue(redis_client):
     """Create a RedisTaskQueue instance."""
     return RedisTaskQueue(redis_client)

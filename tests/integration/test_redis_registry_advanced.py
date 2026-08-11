@@ -3,13 +3,14 @@
 
 import asyncio
 import pytest
+import pytest_asyncio
 from redis.asyncio import Redis
 from src.agent_platform.registry.redis_registry import RedisAgentRegistry
 from src.agent_platform.core.agent import AgentRecord, AgentStatus, AgentCapability
 from datetime import datetime
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def redis_client():
     client = Redis.from_url("redis://localhost:6379/0")
     await client.flushall()
@@ -18,7 +19,7 @@ async def redis_client():
     await client.aclose()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def registry(redis_client):
     return RedisAgentRegistry(redis_client, ttl_seconds=10)
 
