@@ -11,7 +11,7 @@ from src.agent_platform.scheduler.models import TaskFilterOptions
 
 
 @pytest.fixture
-async def scheduler():
+def scheduler():
     queue = InMemoryTaskQueue()
     return TaskScheduler(queue)
 
