@@ -130,7 +130,7 @@ class MetricsCollector:
 
     def __init__(self, registry: MetricRegistry):
         self.registry = registry
-        self._start_time = time.time()
+        self._start_time = time.perf_counter()
 
     async def record_agent_registration(self, tenant_id: str = "default") -> None:
         """Record an agent registration."""
@@ -201,7 +201,7 @@ class MetricsCollector:
     async def get_system_metrics(self) -> Dict[str, Any]:
         """Get system metrics including uptime."""
         return {
-            "uptime_seconds": time.time() - self._start_time,
+            "uptime_seconds": max(time.perf_counter() - self._start_time, 0.0),
             "metrics": self.registry.get_all_metrics(),
             "timestamp": datetime.utcnow().isoformat(),
         }
