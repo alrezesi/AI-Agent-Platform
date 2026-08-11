@@ -4,25 +4,43 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3de2eebe-8eaf-4bb1-bbb6-6a62edd138d2" name="Changes" comment="test: achieve 80% test coverage with all 146 tests passing">
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/a2a_communication.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/architecture.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/distributed_execution.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/failure_recovery.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/message_bus.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/monitoring.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/multi_tenant.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/plugin_system.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/registry.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/task_execution.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/tool_calling.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/workflow_engine.md" beforeDir="false" />
+    <list default="true" id="3de2eebe-8eaf-4bb1-bbb6-6a62edd138d2" name="Changes" comment="Done!">
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pyproject.toml" beforeDir="false" afterPath="$PROJECT_DIR$/pyproject.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/api/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/api/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/distributed/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/distributed/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/distributed/lock.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/distributed/lock.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/distributed/queue.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/distributed/queue.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/message_bus/in_memory.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/message_bus/in_memory.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/message_bus/redis_bus.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/message_bus/redis_bus.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/monitoring/metrics.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/monitoring/metrics.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/monitoring/tracing.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/monitoring/tracing.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/recovery/checkpoint.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/recovery/checkpoint.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/registry/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/registry/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/registry/postgres_registry.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/registry/postgres_registry.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/registry/redis_registry.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/registry/redis_registry.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/agent_platform/scheduler/redis_queue.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/agent_platform/scheduler/redis_queue.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/integration/test_api.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/integration/test_api.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/integration/test_postgres_registry.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/integration/test_postgres_registry.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/integration/test_redis_message_bus.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/integration/test_redis_message_bus.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/integration/test_redis_queue.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/integration/test_redis_queue.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/integration/test_redis_registry.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/integration/test_redis_registry.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/integration/test_redis_registry_advanced.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/integration/test_redis_registry_advanced.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/unit/test_engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_engine.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/unit/test_message_bus.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_message_bus.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/unit/test_multi_tenant.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_multi_tenant.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/unit/test_registry.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_registry.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/unit/test_scheduler.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_scheduler.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/unit/test_workflow.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/unit/test_workflow.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="EmbeddingIndexingInfo">
+    <option name="cachedIndexableFilesCount" value="240" />
   </component>
   <component name="FileTemplateManagerImpl">
     <option name="RECENT_TEMPLATES">
@@ -33,6 +51,81 @@
   </component>
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
+  "lastFilter": {
+    "state": "OPEN",
+    "assignee": "alrezesi"
+  }
+}]]></component>
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "https://github.com/alrezesi/AI-Agent-Platform.git",
+    "accountId": "0c890d71-08d4-47af-8d2b-396ef45b8099"
+  }
+}]]></component>
+  <component name="McpProjectServerCommands">
+    <commands />
+    <urls />
+  </component>
+  <component name="NextEditCompletionFeaturesState">
+    <decayedCancelled>
+      <entry key="MS100" value="1.0000000072799415" />
+      <entry key="MS500" value="1.0465675671665071" />
+      <entry key="S2" value="2.7551761318196224" />
+      <entry key="S5" value="8.912011224492858" />
+      <entry key="S10" value="19.636918805589506" />
+      <entry key="S30" value="45.87943764896285" />
+      <entry key="S60" value="61.88226415070298" />
+      <entry key="M2" value="80.16693836526103" />
+      <entry key="M5" value="120.5418858783309" />
+      <entry key="M10" value="160.75069565151477" />
+      <entry key="M15" value="185.67951623965195" />
+      <entry key="M30" value="225.30887740064694" />
+      <entry key="H1" value="255.29386623120817" />
+      <entry key="H2" value="274.3353575198027" />
+      <entry key="H4" value="285.16092846806896" />
+      <entry key="D1" value="294.9512595070487" />
+      <entry key="W1" value="296.705400161307" />
+    </decayedCancelled>
+    <decayedSelected>
+      <entry key="MS100" value="0.0" />
+      <entry key="MS500" value="0.0" />
+      <entry key="S2" value="0.0" />
+      <entry key="S5" value="0.0" />
+      <entry key="S10" value="0.0" />
+      <entry key="S30" value="0.0" />
+      <entry key="S60" value="0.0" />
+      <entry key="M2" value="0.0" />
+      <entry key="M5" value="0.0" />
+      <entry key="M10" value="0.0" />
+      <entry key="M15" value="0.0" />
+      <entry key="M30" value="0.0" />
+      <entry key="H1" value="0.0" />
+      <entry key="H2" value="0.0" />
+      <entry key="H4" value="0.0" />
+      <entry key="D1" value="0.0" />
+      <entry key="W1" value="0.0" />
+    </decayedSelected>
+    <decayedShown>
+      <entry key="MS100" value="0.9592641262131896" />
+      <entry key="MS500" value="1.037785018282906" />
+      <entry key="S2" value="2.7485656375696936" />
+      <entry key="S5" value="8.902945572876147" />
+      <entry key="S10" value="19.6266404951302" />
+      <entry key="S30" value="45.8711590035731" />
+      <entry key="S60" value="61.87660970013024" />
+      <entry key="M2" value="80.16321272483005" />
+      <entry key="M5" value="120.53949780290064" />
+      <entry key="M10" value="160.74898289156252" />
+      <entry key="M15" value="185.6781240876337" />
+      <entry key="M30" value="225.30793625522898" />
+      <entry key="H1" value="255.2932802705203" />
+      <entry key="H2" value="274.3350226059245" />
+      <entry key="H4" value="285.16074818580836" />
+      <entry key="D1" value="294.95122743452805" />
+      <entry key="W1" value="296.7053955263693" />
+    </decayedShown>
   </component>
   <component name="ProblemsViewState">
     <option name="selectedTabId" value="CurrentFile" />
@@ -49,13 +142,18 @@
   <component name="PropertiesComponent">{
   &quot;keyToString&quot;: {
     &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
     &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
     &quot;git-widget-placeholder&quot;: &quot;master&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.jshint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
     &quot;node.js.selected.package.jshint&quot;: &quot;&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
     &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;
   }
 }</component>
@@ -92,7 +190,9 @@
       <workItem from="1785746240388" duration="2402000" />
       <workItem from="1785757441403" duration="2744000" />
       <workItem from="1786185639762" duration="9106000" />
-      <workItem from="1786207525290" duration="6180000" />
+      <workItem from="1786207525290" duration="6712000" />
+      <workItem from="1786364900273" duration="3510000" />
+      <workItem from="1786450344324" duration="3539000" />
     </task>
     <task id="LOCAL-00001" summary="test: achieve 80% test coverage with all 146 tests passing">
       <option name="closed" value="true" />
@@ -110,7 +210,31 @@
       <option name="project" value="LOCAL" />
       <updated>1786216423353</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="Done!">
+      <option name="closed" value="true" />
+      <created>1786217900750</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1786217900751</updated>
+    </task>
+    <task id="LOCAL-00004" summary="Done!">
+      <option name="closed" value="true" />
+      <created>1786217985364</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1786217985365</updated>
+    </task>
+    <task id="LOCAL-00005" summary="Done!">
+      <option name="closed" value="true" />
+      <created>1786218038968</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1786218038968</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -118,6 +242,7 @@
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="test: achieve 80% test coverage with all 146 tests passing" />
-    <option name="LAST_COMMIT_MESSAGE" value="test: achieve 80% test coverage with all 146 tests passing" />
+    <MESSAGE value="Done!" />
+    <option name="LAST_COMMIT_MESSAGE" value="Done!" />
   </component>
 </project>
