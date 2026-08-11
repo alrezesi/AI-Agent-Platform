@@ -26,7 +26,7 @@ class EchoAgent(BaseAgent):
 
 
 @pytest.fixture
-async def engine():
+def engine():
     registry = InMemoryAgentRegistry()
     scheduler = TaskScheduler(InMemoryTaskQueue())
     return AgentEngine(registry, scheduler, poll_interval=0.1)
