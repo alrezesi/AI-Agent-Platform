@@ -3,8 +3,16 @@
 
 from .base import BaseAgentRegistry
 from .in_memory import InMemoryAgentRegistry
-from .redis_registry import RedisAgentRegistry
-from .postgres_registry import PostgresAgentRegistry
+
+try:
+    from .redis_registry import RedisAgentRegistry
+except ImportError:  # pragma: no cover - optional dependency
+    RedisAgentRegistry = None
+
+try:
+    from .postgres_registry import PostgresAgentRegistry
+except ImportError:  # pragma: no cover - optional dependency
+    PostgresAgentRegistry = None
 
 __all__ = [
     "BaseAgentRegistry",
