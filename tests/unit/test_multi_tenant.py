@@ -13,7 +13,7 @@ from src.agent_platform.multi_tenant.exceptions import (
 
 
 @pytest.fixture
-async def tenant_manager():
+def tenant_manager():
     class Storage:
         _tenants = {}
     return TenantManager(Storage())
