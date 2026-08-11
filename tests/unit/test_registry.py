@@ -10,7 +10,7 @@ from src.agent_platform.registry.in_memory import InMemoryAgentRegistry
 
 
 @pytest.fixture
-async def registry():
+def registry():
     return InMemoryAgentRegistry()
 
 
