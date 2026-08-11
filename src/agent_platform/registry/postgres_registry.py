@@ -3,14 +3,14 @@
 
 import json
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select, delete, update, func
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import String, DateTime, Integer, JSON, Enum as SQLAEnum
 
-from src.agent_platform.core.agent import AgentRecord, AgentStatus
+from src.agent_platform.core.agent import AgentRecord, AgentStatus, AgentCapability
 from src.agent_platform.registry.base import BaseAgentRegistry
 
 
