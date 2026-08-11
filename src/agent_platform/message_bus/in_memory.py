@@ -63,7 +63,12 @@ class InMemoryMessageBus(BaseMessageBus):
         self._running = False
         for task in self._worker_tasks:
             task.cancel()
-        await asyncio.gather(*self._worker_tasks, return_exceptions=True)
+        if self._worker_tasks:
+            try:
+                await asyncio.gather(*self._worker_tasks, return_exceptions=True)
+            except (RuntimeError, ValueError):
+                # The bus may be stopped from a different event loop in tests or teardown.
+                pass
         self._worker_tasks.clear()
         logger.info("InMemoryMessageBus stopped")
 

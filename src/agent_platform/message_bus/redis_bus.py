@@ -4,8 +4,17 @@
 import json
 import asyncio
 import logging
-from typing import Dict, List, Optional, Set, Callable, Awaitable, Any
-from redis.asyncio import Redis
+from typing import Any, Dict, List, Optional, Set, Callable, Awaitable, TYPE_CHECKING
+
+try:
+    from redis.asyncio import Redis
+except ImportError:  # pragma: no cover - optional dependency
+    Redis = Any
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis as RedisClient
+else:
+    RedisClient = Any
 
 from src.agent_platform.core.message import Message, MessageStatus
 from src.agent_platform.message_bus.base import BaseMessageBus, MessageHandler
@@ -21,7 +30,7 @@ class RedisMessageBus(BaseMessageBus):
     Supports point-to-point, broadcast, and topic-based messaging.
     """
 
-    def __init__(self, redis_client: Redis, message_ttl_seconds: int = 3600):
+    def __init__(self, redis_client: RedisClient, message_ttl_seconds: int = 3600):
         self.redis = redis_client
         self.message_ttl = message_ttl_seconds
         self._running = False
@@ -67,9 +76,18 @@ class RedisMessageBus(BaseMessageBus):
 
         for task in self._worker_tasks:
             task.cancel()
-        await asyncio.gather(*self._worker_tasks, return_exceptions=True)
+        if self._worker_tasks:
+            try:
+                await asyncio.gather(*self._worker_tasks, return_exceptions=True)
+            except (RuntimeError, ValueError):
+                # Teardown can happen after the originating loop is gone in tests.
+                pass
 
-        await self._pubsub.aclose()
+        if self._pubsub is not None:
+            try:
+                await self._pubsub.aclose()
+            except (RuntimeError, ValueError):
+                pass
         logger.info("RedisMessageBus stopped")
 
     # --- Core Send Methods ---
