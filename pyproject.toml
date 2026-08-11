@@ -35,9 +35,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "--cov=src/agent_platform --cov-report=term --cov-report=html"
 pythonpath = ["."]
 
 [tool.black]
