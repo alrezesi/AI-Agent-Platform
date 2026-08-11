@@ -1,87 +1,101 @@
-# Byte-compiled / optimized / DLL files
+# OS junk
+.DS_Store
+Thumbs.db
+Desktop.ini
+.directory
+
+# Editor / IDE
+.idea/
+.vscode/
+.fleet/
+*.iml
+*.swp
+*.swo
+*~
+
+# Python bytecode and caches
 __pycache__/
 *.py[cod]
 *$py.class
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+.hypothesis/
+.ipynb_checkpoints/
+.cache/
+.dmypy.json
 
 # Virtual environments
 .venv/
 venv/
 env/
 ENV/
-.env/
 .venv.bak/
 env.bak/
 
-# Environment variables
+# Environment variables and local config
 .env
+.env.*
 .env.local
 .env.*.local
 
-# IDE and Editor files
-.idea/
-*.iml
-.vscode/
-*.swp
-*.swo
-.DS_Store
-Thumbs.db
-
-# Testing and Coverage
-.pytest_cache/
+# Testing and coverage
+.tox/
+.nox/
 .coverage
 .coverage.*
 htmlcov/
-.tox/
-.mypy_cache/
-.ruff_cache/
-.pytest_cache/
-.cache/
+coverage/
 coverage.xml
 *.cover
 
-# Build and Distribution
+# Build and distribution
 build/
 dist/
+site/
 *.egg-info/
 *.egg
 .eggs/
+pip-wheel-metadata/
 wheels/
 share/python-wheels/
+
+# JavaScript / frontend
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.yarn/install-state.gz
+.parcel-cache/
+.next/
+.nuxt/
+.svelte-kit/
+.turbo/
+*.tsbuildinfo
+vite.svg
 
 # Logs
 logs/
 *.log
 
-# Database files (local SQLite)
+# Local databases
 *.db
 *.sqlite
 *.sqlite3
+*.sqlite-journal
 postgres_data/
 
-# Docker (if running locally)
+# Docker / runtime artifacts
 *.pid
 *.sock
 *.socket
 
-# PyCharm specific
-.idea/inspectionProfiles/
-.idea/modules.xml
-.idea/workspace.xml
-.idea/misc.xml
-.idea/ai-agent-platform.iml
-
-# OS generated
-.directory
-~$*
-
-# mypy
-.mypy_cache/
-
-# pyre type checker
-.pyre/
-
-# pytype static type analyzer
-.pytype/
-
-# profiling data
+# Misc
 .prof
+~$*
