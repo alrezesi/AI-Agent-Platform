@@ -4,7 +4,7 @@
 from enum import Enum
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class StepStatus(str, Enum):
@@ -73,7 +73,7 @@ class Workflow(BaseModel):
     steps: List[WorkflowStep] = Field(..., description="List of steps")
 
     # Metadata
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: Optional[datetime] = None
     tenant_id: Optional[str] = None
 
