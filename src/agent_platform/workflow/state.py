@@ -2,7 +2,7 @@
 # Workflow state management for pause/resume
 
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .models import Workflow, WorkflowStatus, StepStatus
 
@@ -30,7 +30,7 @@ class WorkflowStateManager:
     def start(self) -> None:
         """Mark workflow as running."""
         self.workflow_status = WorkflowStatus.RUNNING
-        self.started_at = datetime.utcnow()
+        self.started_at = datetime.now(timezone.utc)
 
     def pause(self) -> None:
         """Pause workflow execution."""
@@ -43,12 +43,12 @@ class WorkflowStateManager:
     def complete(self) -> None:
         """Mark workflow as completed."""
         self.workflow_status = WorkflowStatus.COMPLETED
-        self.completed_at = datetime.utcnow()
+        self.completed_at = datetime.now(timezone.utc)
 
     def fail(self) -> None:
         """Mark workflow as failed."""
         self.workflow_status = WorkflowStatus.FAILED
-        self.completed_at = datetime.utcnow()
+        self.completed_at = datetime.now(timezone.utc)
 
     def set_step_status(self, step_id: str, status: StepStatus) -> None:
         """Update status of a step."""
