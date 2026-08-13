@@ -4,7 +4,7 @@
 import heapq
 import asyncio
 from typing import Optional, List, Dict, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.agent_platform.core.task import Task, TaskStatus
 from src.agent_platform.scheduler.base import BaseTaskQueue
@@ -28,6 +28,8 @@ class InMemoryTaskQueue(BaseTaskQueue):
 
     async def enqueue(self, task: Task) -> None:
         async with self._lock:
+            if task.task_id in self._tasks:
+                return
             task.status = TaskStatus.PENDING
             self._tasks[task.task_id] = task
             item = TaskQueueItem(
@@ -37,7 +39,7 @@ class InMemoryTaskQueue(BaseTaskQueue):
             )
             heapq.heappush(self._heap, (item.priority, item.created_at, item.task_id))
 
-    async def dequeue(self) -> Optional[Task]:
+    async def dequeue(self, worker_id: Optional[str] = None, lease_seconds: Optional[float] = None) -> Optional[Task]:
         async with self._lock:
             if not self._heap:
                 return None
@@ -45,7 +47,7 @@ class InMemoryTaskQueue(BaseTaskQueue):
             task = self._tasks.get(task_id)
             if task:
                 task.status = TaskStatus.RUNNING
-                task.started_at = datetime.utcnow()
+                task.started_at = datetime.now(timezone.utc)
             return task
 
     async def peek(self) -> Optional[Task]:
@@ -119,3 +121,7 @@ class InMemoryTaskQueue(BaseTaskQueue):
         async with self._lock:
             if task.task_id in self._tasks:
                 self._tasks[task.task_id] = task
+
+    async def reclaim_expired_tasks(self) -> List[str]:
+        """In-memory queue has no leases; nothing to reclaim."""
+        return []
