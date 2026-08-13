@@ -5,7 +5,7 @@ import asyncio
 import logging
 from typing import Dict, List, Optional, Set, Any
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 from src.agent_platform.core.message import Message, MessageStatus
@@ -78,6 +78,8 @@ class InMemoryMessageBus(BaseMessageBus):
         if not message.to_agent:
             raise ValueError("to_agent is required for point-to-point")
         async with self._lock:
+            if message.message_id in self._message_store:
+                return message.message_id
             if message.to_agent not in self._queues:
                 raise MessageDeliveryError(f"Agent {message.to_agent} not subscribed")
             self._message_store[message.message_id] = message
@@ -329,6 +331,9 @@ class InMemoryMessageBus(BaseMessageBus):
             message_id, agent_id, MessageDeliveryStatus.ACKNOWLEDGED
         )
 
+    async def has_processed(self, message_id: str) -> bool:
+        return message_id in self._message_store
+
     async def get_delivery_status(self, message_id: str) -> List[MessageDeliveryRecord]:
         return self._delivery_records.get(message_id, [])
 
@@ -355,9 +360,9 @@ class InMemoryMessageBus(BaseMessageBus):
                 if record.agent_id == agent_id:
                     record.status = status
                     if status == MessageDeliveryStatus.ACKNOWLEDGED:
-                        record.acknowledged_at = datetime.utcnow()
+                        record.acknowledged_at = datetime.now(timezone.utc)
                     if status == MessageDeliveryStatus.DELIVERED:
-                        record.delivered_at = datetime.utcnow()
+                        record.delivered_at = datetime.now(timezone.utc)
                     if last_error:
                         record.last_error = last_error
                     record.attempt_count += 1
