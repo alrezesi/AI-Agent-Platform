@@ -6,7 +6,7 @@ import socket
 import logging
 from enum import Enum
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -33,8 +33,8 @@ class NodeInfo:
     port: int
     status: NodeStatus = NodeStatus.INITIALIZING
     capabilities: Dict[str, Any] = field(default_factory=dict)
-    started_at: datetime = field(default_factory=datetime.utcnow)
-    last_heartbeat: datetime = field(default_factory=datetime.utcnow)
+    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_heartbeat: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -68,7 +68,7 @@ class Node:
         """Start the node."""
         self._running = True
         self.info.status = NodeStatus.ACTIVE
-        self.info.last_heartbeat = datetime.utcnow()
+        self.info.last_heartbeat = datetime.now(timezone.utc)
         logger.info(f"Node {self.info.node_id} started on {self.info.hostname}:{self.info.port}")
 
     async def stop(self) -> None:
@@ -80,7 +80,7 @@ class Node:
     async def heartbeat(self) -> None:
         """Update the heartbeat timestamp."""
         if self._running:
-            self.info.last_heartbeat = datetime.utcnow()
+            self.info.last_heartbeat = datetime.now(timezone.utc)
 
     async def health_check(self) -> bool:
         """
@@ -91,7 +91,7 @@ class Node:
         if not self._running:
             return False
         # Check if heartbeat is too old (more than 30 seconds)
-        age = (datetime.utcnow() - self.info.last_heartbeat).total_seconds()
+        age = (datetime.now(timezone.utc) - self.info.last_heartbeat).total_seconds()
         if age > 30:
             self.info.status = NodeStatus.UNHEALTHY
             return False
