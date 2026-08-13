@@ -3,7 +3,7 @@
 
 import json
 from typing import Any, List, Optional, TYPE_CHECKING
-from datetime import datetime
+from datetime import datetime, timezone
 
 try:
     from redis.asyncio import Redis
@@ -34,7 +34,7 @@ class RedisAgentRegistry(BaseAgentRegistry):
         return f"agent:{agent_id}"
 
     async def register(self, agent: AgentRecord) -> None:
-        agent.last_heartbeat = datetime.utcnow()
+        agent.last_heartbeat = datetime.now(timezone.utc)
         data = agent.model_dump_json()
         key = self._key(agent.agent_id)
         await self.redis.setex(key, self.ttl_seconds, data)
@@ -72,7 +72,7 @@ class RedisAgentRegistry(BaseAgentRegistry):
         agent = AgentRecord.model_validate_json(data)
         if tenant_id and agent.tenant_id != tenant_id:
             return False
-        agent.last_heartbeat = datetime.utcnow()
+        agent.last_heartbeat = datetime.now(timezone.utc)
         await self.redis.setex(key, self.ttl_seconds, agent.model_dump_json())
         return True
 
