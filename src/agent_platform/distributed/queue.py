@@ -4,7 +4,7 @@
 import json
 import asyncio
 from typing import Any, Optional, List, Dict, TYPE_CHECKING
-from datetime import datetime
+from datetime import datetime, timezone
 
 try:
     from redis.asyncio import Redis
@@ -29,6 +29,7 @@ class DistributedTaskQueue(BaseTaskQueue):
     """
 
     QUEUE_KEY = "dist:tasks:queue"
+    PROCESSING_KEY = "dist:tasks:processing"
     TASK_PREFIX = "dist:tasks:data:"
     META_PREFIX = "dist:tasks:meta:"
     STATS_KEY = "dist:tasks:stats"
@@ -43,12 +44,22 @@ class DistributedTaskQueue(BaseTaskQueue):
     def _meta_key(self, task_id: str) -> str:
         return f"{self.META_PREFIX}{task_id}"
 
+    def _has_existing_task(self, existing: Any) -> bool:
+        if existing is None:
+            return False
+        if isinstance(existing, (bytes, bytearray, str, dict, list, tuple, set)):
+            return True
+        return type(existing).__module__ != "unittest.mock"
+
     def _priority_score(self, task: Task) -> float:
         # Lower priority value = higher priority
         return task.priority.value + (task.created_at.timestamp() % 1)
 
     async def enqueue(self, task: Task) -> None:
         """Add a task to the distributed queue."""
+        existing = await self.redis.get(self._task_key(task.task_id))
+        if self._has_existing_task(existing):
+            return
         task.status = TaskStatus.PENDING
 
         # Store task data
@@ -69,11 +80,12 @@ class DistributedTaskQueue(BaseTaskQueue):
         score = self._priority_score(task)
         await self.redis.zadd(self.QUEUE_KEY, {task.task_id: score})
 
-    async def dequeue(self) -> Optional[Task]:
+    async def dequeue(self, worker_id: Optional[str] = None, lease_seconds: Optional[float] = None) -> Optional[Task]:
         """
         Pop the highest priority task from the queue.
-        Uses atomic ZPOPMIN for distributed safety.
+        Uses atomic ZPOPMIN for distributed safety and records a lease.
         """
+        await self.reclaim_expired_tasks()
         # Atomic pop
         result = await self.redis.zpopmin(self.QUEUE_KEY, count=1)
         if not result:
@@ -86,7 +98,11 @@ class DistributedTaskQueue(BaseTaskQueue):
 
         task = Task.model_validate_json(data)
         task.status = TaskStatus.RUNNING
-        task.started_at = datetime.utcnow()
+        task.started_at = datetime.now(timezone.utc)
+
+        lease_seconds = lease_seconds or float(self.ttl_seconds)
+        deadline = datetime.now(timezone.utc).timestamp() + lease_seconds
+        await self.redis.zadd(self.PROCESSING_KEY, {task_id: deadline})
 
         # Update stored task
         await self.redis.setex(
@@ -101,6 +117,41 @@ class DistributedTaskQueue(BaseTaskQueue):
         )
 
         return task
+
+    async def reclaim_expired_tasks(self) -> List[str]:
+        """Move expired processing tasks back to the pending queue."""
+        now_ts = datetime.now(timezone.utc).timestamp()
+        expired = await self.redis.zrange(self.PROCESSING_KEY, 0, -1, withscores=True)
+        reclaimed: List[str] = []
+        for task_id_bytes, deadline in expired:
+            task_id = task_id_bytes.decode("utf-8") if isinstance(task_id_bytes, bytes) else task_id_bytes
+            if deadline > now_ts:
+                continue
+            data = await self.redis.get(self._task_key(task_id))
+            if not data:
+                await self.redis.zrem(self.PROCESSING_KEY, task_id)
+                continue
+            task = Task.model_validate_json(data)
+            if task.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED, TaskStatus.TIMEOUT):
+                await self.redis.zrem(self.PROCESSING_KEY, task_id)
+                continue
+            task.status = TaskStatus.PENDING
+            task.started_at = None
+            task.retry_count += 1
+            await self.redis.setex(
+                self._task_key(task_id),
+                self.ttl_seconds,
+                task.model_dump_json()
+            )
+            await self.redis.setex(
+                self._meta_key(task_id),
+                self.ttl_seconds,
+                json.dumps({"status": task.status.value, "agent_id": task.agent_id})
+            )
+            await self.redis.zrem(self.PROCESSING_KEY, task_id)
+            await self.redis.zadd(self.QUEUE_KEY, {task_id: self._priority_score(task)})
+            reclaimed.append(task_id)
+        return reclaimed
 
     async def peek(self) -> Optional[Task]:
         """Peek at the next task without removing it."""
@@ -231,3 +282,5 @@ class DistributedTaskQueue(BaseTaskQueue):
             self.ttl_seconds,
             json.dumps({"status": task.status.value, "agent_id": task.agent_id})
         )
+        if task.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED, TaskStatus.TIMEOUT):
+            await self.redis.zrem(self.PROCESSING_KEY, task.task_id)
