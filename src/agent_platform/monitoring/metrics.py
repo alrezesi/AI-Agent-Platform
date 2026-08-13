@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import defaultdict
 
 logger = logging.getLogger(__name__)
@@ -203,5 +203,5 @@ class MetricsCollector:
         return {
             "uptime_seconds": max(time.perf_counter() - self._start_time, 0.0),
             "metrics": self.registry.get_all_metrics(),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
