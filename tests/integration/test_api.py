@@ -17,20 +17,20 @@ class SharedStorage:
 
 shared_storage = SharedStorage()
 
-def test_get_tenant_manager():
+def override_get_tenant_manager():
     """Override tenant manager for testing."""
     return TenantManager(shared_storage)
 
 # Shared scheduler instance
 shared_scheduler = TaskScheduler(InMemoryTaskQueue())
 
-def test_get_scheduler():
+def override_get_scheduler():
     """Override scheduler for testing."""
     return shared_scheduler
 
 # Override dependencies
-app.dependency_overrides[original_get_tenant_manager] = test_get_tenant_manager
-app.dependency_overrides[original_get_scheduler] = test_get_scheduler
+app.dependency_overrides[original_get_tenant_manager] = override_get_tenant_manager
+app.dependency_overrides[original_get_scheduler] = override_get_scheduler
 
 
 @pytest.fixture
