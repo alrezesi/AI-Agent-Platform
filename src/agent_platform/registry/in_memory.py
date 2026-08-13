@@ -3,7 +3,7 @@
 
 import asyncio
 from typing import List, Optional, Dict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from src.agent_platform.core.agent import AgentRecord, AgentStatus
 from src.agent_platform.registry.base import BaseAgentRegistry
@@ -22,7 +22,7 @@ class InMemoryAgentRegistry(BaseAgentRegistry):
 
     async def register(self, agent: AgentRecord) -> None:
         async with self._lock:
-            agent.last_heartbeat = datetime.utcnow()
+            agent.last_heartbeat = datetime.now(timezone.utc)
             self._agents[agent.agent_id] = agent
 
     async def unregister(self, agent_id: str, tenant_id: Optional[str] = None) -> bool:
@@ -49,7 +49,7 @@ class InMemoryAgentRegistry(BaseAgentRegistry):
                 return False
             if tenant_id and agent.tenant_id != tenant_id:
                 return False
-            agent.last_heartbeat = datetime.utcnow()
+            agent.last_heartbeat = datetime.now(timezone.utc)
             return True
 
     async def discover(
@@ -89,7 +89,7 @@ class InMemoryAgentRegistry(BaseAgentRegistry):
 
     async def cleanup_stale(self, ttl_seconds: int = 60) -> int:
         async with self._lock:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             stale_ids = []
             for agent_id, agent in self._agents.items():
                 if (now - agent.last_heartbeat).total_seconds() > ttl_seconds:
