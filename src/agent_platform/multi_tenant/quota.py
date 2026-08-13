@@ -3,7 +3,7 @@
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from .models import TenantResourceUsage
@@ -55,7 +55,7 @@ class QuotaChecker:
             return False
 
         async with self._lock:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             if tenant_id not in self._message_counts:
                 self._message_counts[tenant_id] = []
             # Clean old entries (older than 1 second)
