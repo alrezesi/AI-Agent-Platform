@@ -6,7 +6,7 @@ import asyncio
 import logging
 import uuid
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 
@@ -22,7 +22,7 @@ class Checkpoint:
     workflow_id: str
     step_id: Optional[str] = None
     state: Dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -100,7 +100,7 @@ class CheckpointManager:
         """
         Create a new checkpoint.
         """
-        checkpoint_id = f"chk-{workflow_id}-{datetime.utcnow().timestamp()}-{uuid.uuid4().hex[:8]}"
+        checkpoint_id = f"chk-{workflow_id}-{datetime.now(timezone.utc).timestamp()}-{uuid.uuid4().hex[:8]}"
         checkpoint = Checkpoint(
             checkpoint_id=checkpoint_id,
             workflow_id=workflow_id,
