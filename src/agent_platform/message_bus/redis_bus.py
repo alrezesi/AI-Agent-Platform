@@ -100,6 +100,10 @@ class RedisMessageBus(BaseMessageBus):
         queue_key = f"{self._queue_prefix}{message.to_agent}"
         store_key = f"{self._store_prefix}{message.message_id}"
 
+        existing = await self.redis.get(store_key)
+        if existing:
+            return message.message_id
+
         # Store the full message with TTL
         await self.redis.set(
             store_key,
