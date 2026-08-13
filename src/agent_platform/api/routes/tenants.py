@@ -7,16 +7,14 @@ from fastapi import APIRouter, HTTPException, Depends, Body, Query
 from src.agent_platform.multi_tenant.manager import TenantManager
 from src.agent_platform.multi_tenant.models import Tenant, TenantQuota
 from src.agent_platform.multi_tenant.exceptions import TenantNotFoundError
+from src.agent_platform.runtime import get_tenant_manager as get_runtime_tenant_manager
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
 
 
 # Dependency: get tenant manager
 def get_tenant_manager() -> TenantManager:
-    from src.agent_platform.multi_tenant.manager import TenantManager
-    class Storage:
-        _tenants = {}
-    return TenantManager(Storage())
+    return get_runtime_tenant_manager()
 
 
 @router.post("/", response_model=Tenant)

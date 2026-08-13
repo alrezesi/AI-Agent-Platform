@@ -1,57 +1,56 @@
-
 # Middleware for tenant identification and isolation
 
-from typing import Optional, Dict, Any
-from fastapi import Request, HTTPException
+from typing import Optional
+
+from fastapi import Request
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
 from .manager import TenantManager
-from .exceptions import TenantNotFoundError, TenantInactiveError
 
 
 class TenantMiddleware(BaseHTTPMiddleware):
     """
-    Middleware that extracts tenant information from requests.
-    Expects tenant_id in header: X-Tenant-ID or API key.
+    Resolve the tenant from an API key and store it on request.state.
+
+    X-Tenant-ID is never treated as identity. If present, it must match the
+    tenant authenticated by X-API-Key.
     """
 
     def __init__(
         self,
         app: ASGIApp,
-        tenant_manager: TenantManager,
+        tenant_manager: Optional[TenantManager] = None,
         header_name: str = "X-Tenant-ID",
     ):
         super().__init__(app)
-        self.tenant_manager = tenant_manager
+        self._tenant_manager = tenant_manager
         self.header_name = header_name
 
-    async def dispatch(self, request: Request, call_next):
-        # Extract tenant ID from header
-        tenant_id = request.headers.get(self.header_name)
-        if tenant_id:
-            # Validate tenant exists and is active
-            try:
-                tenant = await self.tenant_manager.get_tenant_or_raise(tenant_id)
-                if not tenant.is_active():
-                    raise TenantInactiveError(f"Tenant {tenant_id} is not active")
-                request.state.tenant = tenant
-                request.state.tenant_id = tenant_id
-            except (TenantNotFoundError, TenantInactiveError) as e:
-                raise HTTPException(status_code=403, detail=str(e))
+    def _get_tenant_manager(self) -> TenantManager:
+        if self._tenant_manager is not None:
+            return self._tenant_manager
+        from src.agent_platform.runtime import get_tenant_manager
 
-        # Also try to extract from API key (if present)
+        return get_tenant_manager()
+
+    async def dispatch(self, request: Request, call_next):
         api_key = request.headers.get("X-API-Key")
-        if api_key and not tenant_id:
-            # Find tenant by API key
-            tenants = await self.tenant_manager.list_tenants(limit=1000)
-            for tenant in tenants:
-                if tenant.has_api_key(api_key) and tenant.is_active():
-                    request.state.tenant = tenant
-                    request.state.tenant_id = tenant.tenant_id
-                    break
-            if not hasattr(request.state, 'tenant_id'):
-                raise HTTPException(status_code=401, detail="Invalid API key")
+        if api_key:
+            tenant = await self._get_tenant_manager().get_tenant_by_api_key(api_key)
+            if not tenant:
+                return JSONResponse(status_code=401, content={"detail": "Invalid API key"})
+
+            requested_tenant = request.headers.get(self.header_name)
+            if requested_tenant and requested_tenant != tenant.tenant_id:
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Tenant header does not match API key"},
+                )
+
+            request.state.tenant = tenant
+            request.state.tenant_id = tenant.tenant_id
 
         response = await call_next(request)
         return response
