@@ -4,7 +4,7 @@
 import json
 import logging
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.agent_platform.registry.base import BaseAgentRegistry
 from src.agent_platform.core.agent import AgentRecord, AgentStatus
@@ -34,7 +34,7 @@ class DistributedRegistry(BaseAgentRegistry):
 
     async def register(self, agent: AgentRecord) -> None:
         """Register an agent in the distributed registry."""
-        agent.last_heartbeat = datetime.utcnow()
+        agent.last_heartbeat = datetime.now(timezone.utc)
         key = self._agent_key(agent.agent_id)
         await self.redis.setex(
             key,
@@ -72,7 +72,7 @@ class DistributedRegistry(BaseAgentRegistry):
         agent = AgentRecord.model_validate_json(data)
         if tenant_id and agent.tenant_id != tenant_id:
             return False
-        agent.last_heartbeat = datetime.utcnow()
+        agent.last_heartbeat = datetime.now(timezone.utc)
         await self.redis.setex(key, self.ttl_seconds, agent.model_dump_json())
         return True
 
@@ -187,7 +187,7 @@ class DistributedRegistry(BaseAgentRegistry):
         active = []
         for node in nodes:
             last_heartbeat = datetime.fromisoformat(node.get("last_heartbeat", ""))
-            age = (datetime.utcnow() - last_heartbeat).total_seconds()
+            age = (datetime.now(timezone.utc) - last_heartbeat).total_seconds()
             if age < self.ttl_seconds:
                 active.append(node)
         return active
