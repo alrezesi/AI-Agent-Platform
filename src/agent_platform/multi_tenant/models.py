@@ -4,7 +4,7 @@
 from enum import Enum
 from typing import Optional, Any
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class TenantStatus(str, Enum):
@@ -35,8 +35,8 @@ class Tenant(BaseModel):
     quota: TenantQuota = Field(default_factory=TenantQuota, description="Resource quotas")
     config: dict[str, Any] = Field(default_factory=dict, description="Tenant-specific configuration")
     api_keys: list[dict[str, Any]] = Field(default_factory=list, description="API keys for authentication")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def is_active(self) -> bool:
@@ -55,4 +55,4 @@ class TenantResourceUsage(BaseModel):
     messages_per_second: float = 0.0
     storage_used_mb: float = 0.0
     active_workflows: int = 0
-    last_updated: datetime = Field(default_factory=datetime.utcnow)
+    last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
