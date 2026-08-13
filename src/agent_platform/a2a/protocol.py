@@ -4,7 +4,7 @@
 from enum import Enum
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class HandoverStatus(str, Enum):
@@ -41,7 +41,7 @@ class HandoverRequest(BaseModel):
     context: Dict[str, Any] = Field(default_factory=dict)
     reason: Optional[str] = Field(None, description="Reason for handover")
     priority: int = Field(0, description="Priority level")
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     timeout_seconds: int = 30
 
 
@@ -54,7 +54,7 @@ class HandoverResponse(BaseModel):
     status: HandoverStatus = Field(..., description="Response status")
     message: Optional[str] = Field(None, description="Optional message")
     accepted_context: Optional[Dict[str, Any]] = Field(None)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class A2AMessage(BaseModel):
@@ -67,5 +67,5 @@ class A2AMessage(BaseModel):
     type: A2AMessageType = Field(..., description="Message type")
     content: Dict[str, Any] = Field(default_factory=dict)
     correlation_id: Optional[str] = Field(None)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     tenant_id: Optional[str] = Field(None)
