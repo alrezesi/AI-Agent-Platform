@@ -4,7 +4,7 @@
 from enum import Enum
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 from abc import ABC, abstractmethod
 
 
@@ -30,8 +30,8 @@ class AgentRecord(BaseModel):
     status: AgentStatus = AgentStatus.ACTIVE
     endpoint: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    registered_at: datetime = Field(default_factory=datetime.utcnow)
-    last_heartbeat: datetime = Field(default_factory=datetime.utcnow)
+    registered_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_heartbeat: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     tenant_id: Optional[str] = None
 
 
