@@ -6,6 +6,8 @@ from typing import Optional, Any
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone
 
+from src.agent_platform.security import api_key_record_matches
+
 
 class TenantStatus(str, Enum):
     """Status of a tenant."""
@@ -45,7 +47,7 @@ class Tenant(BaseModel):
 
     def has_api_key(self, api_key: str) -> bool:
         """Check if the given API key is valid for this tenant."""
-        return any(key.get('key') == api_key for key in self.api_keys)
+        return any(api_key_record_matches(key, api_key) for key in self.api_keys)
 
 class TenantResourceUsage(BaseModel):
     tenant_id: str
