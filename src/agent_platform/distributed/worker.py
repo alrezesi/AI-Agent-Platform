@@ -90,8 +90,13 @@ class WorkerNode(Node):
         """
         while self._running:
             try:
+                if hasattr(self.queue, "reclaim_expired_tasks"):
+                    await self.queue.reclaim_expired_tasks()
                 # Get a task from the queue
-                task = await self.queue.dequeue()
+                task = await self.queue.dequeue(
+                    worker_id=self.info.node_id,
+                    lease_seconds=self.config.task_timeout_seconds,
+                )
                 if task:
                     # Execute the task with concurrency limit
                     asyncio.create_task(self._execute_task_with_semaphore(task))
