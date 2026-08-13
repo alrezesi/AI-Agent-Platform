@@ -4,7 +4,7 @@
 from enum import Enum
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class SubscriptionType(str, Enum):
@@ -25,7 +25,7 @@ class Subscription(BaseModel):
     filter_criteria: Optional[Dict[str, Any]] = Field(
         None, description="Optional filter criteria (e.g., {'priority': 'high'})"
     )
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     is_active: bool = Field(True, description="Whether subscription is active")
 
 
