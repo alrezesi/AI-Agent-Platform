@@ -3,7 +3,7 @@
 
 import pytest
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from src.agent_platform.core.agent import AgentRecord, AgentStatus, AgentCapability
 from src.agent_platform.registry.in_memory import InMemoryAgentRegistry
@@ -63,7 +63,7 @@ async def test_cleanup_stale(registry):
     # Manually set the heartbeat to a stale value in the internal dictionary
     # This bypasses the register method which would reset the timestamp
     async with registry._lock:
-        registry._agents["stale"].last_heartbeat = datetime.utcnow() - timedelta(seconds=100)
+        registry._agents["stale"].last_heartbeat = datetime.now(timezone.utc) - timedelta(seconds=100)
 
     removed = await registry.cleanup_stale(ttl_seconds=30)
     assert removed == 1
