@@ -3,8 +3,8 @@
 
 from enum import Enum
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, validator
-from datetime import datetime
+from pydantic import BaseModel, Field
+from datetime import datetime, timezone
 import uuid
 
 
@@ -73,7 +73,7 @@ class Message(BaseModel):
 
     # --- Metadata ---
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(timezone.utc),
         description="Creation timestamp"
     )
     ttl_seconds: Optional[int] = Field(
@@ -99,20 +99,11 @@ class Message(BaseModel):
         description="Maximum delivery retries"
     )
 
-    # --- Schema validation ---
-    @validator('to_agent')
-    def check_target(cls, v, values):
-        """Ensure to_agent is set for non-broadcast messages."""
-        msg_type = values.get('type')
-        if msg_type and msg_type != MessageType.BROADCAST and v is None:
-            raise ValueError(f"to_agent is required for {msg_type} messages")
-        return v
-
     def is_expired(self) -> bool:
         """Check if the message TTL has expired."""
         if self.ttl_seconds is None:
             return False
-        age = (datetime.utcnow() - self.timestamp).total_seconds()
+        age = (datetime.now(timezone.utc) - self.timestamp).total_seconds()
         return age > self.ttl_seconds
 
     def to_dict(self) -> Dict[str, Any]:
