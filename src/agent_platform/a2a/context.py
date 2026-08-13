@@ -3,7 +3,7 @@
 
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 
 
@@ -14,8 +14,8 @@ class ConversationContext:
     Agents can read from and write to this context.
     """
     session_id: str
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     data: Dict[str, Any] = field(default_factory=dict)
     history: List[Dict[str, Any]] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -27,13 +27,13 @@ class ConversationContext:
     def set(self, key: str, value: Any) -> None:
         """Set a value in context data."""
         self.data[key] = value
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
 
     def push_history(self, entry: Dict[str, Any]) -> None:
         """Add an entry to conversation history."""
-        entry['timestamp'] = datetime.utcnow().isoformat()
+        entry['timestamp'] = datetime.now(timezone.utc).isoformat()
         self.history.append(entry)
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
 
     def get_history(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Get recent history entries."""
@@ -42,7 +42,7 @@ class ConversationContext:
     def merge(self, other: Dict[str, Any]) -> None:
         """Merge data from another context."""
         self.data.update(other)
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to dictionary."""
@@ -60,12 +60,12 @@ class ConversationContext:
         """Deserialize from dictionary."""
         context = cls(
             session_id=data['session_id'],
-            created_at=datetime.fromisoformat(data['created_at']) if 'created_at' in data else datetime.utcnow(),
+            created_at=datetime.fromisoformat(data['created_at']) if 'created_at' in data else datetime.now(timezone.utc),
             data=data.get('data', {}),
             history=data.get('history', []),
             metadata=data.get('metadata', {}),
         )
-        context.updated_at = datetime.fromisoformat(data['updated_at']) if 'updated_at' in data else datetime.utcnow()
+        context.updated_at = datetime.fromisoformat(data['updated_at']) if 'updated_at' in data else datetime.now(timezone.utc)
         return context
 
 
