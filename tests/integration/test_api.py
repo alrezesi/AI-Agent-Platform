@@ -77,6 +77,13 @@ def test_tenants_list(client):
     assert response.status_code == 200
 
 
+def _tenant_headers(client):
+    resp = client.post("/tenants/", json={"name": "TaskTenant"})
+    assert resp.status_code == 200
+    tenant_id = resp.json()["tenant_id"]
+    return {"X-Tenant-ID": tenant_id}
+
+
 def test_create_tenant(client):
     response = client.post(
         "/tenants/",
@@ -92,19 +99,24 @@ def test_create_tenant(client):
 
 
 def test_tasks_api(client):
+    headers = _tenant_headers(client)
     response = client.post(
         "/tasks/",
         json={
             "agent_id": "test-agent",
             "task_type": "echo",
             "payload": {"msg": "hello"}
-        }
+        },
+        headers=headers,
     )
     assert response.status_code == 200
     task_id = response.json()["task_id"]
 
-    response = client.get(f"/tasks/{task_id}")
+    response = client.get(f"/tasks/{task_id}", headers=headers)
     assert response.status_code == 200
+
+    stats = client.get("/tasks/stats", headers=headers)
+    assert stats.status_code == 200
 
 
 def test_get_tenant_not_found(client):
@@ -126,11 +138,16 @@ def test_delete_tenant(client):
 
 
 def test_tasks_api_cancel(client):
-    resp = client.post("/tasks/", json={"agent_id": "a1", "task_type": "echo", "payload": {}})
+    headers = _tenant_headers(client)
+    resp = client.post(
+        "/tasks/",
+        json={"agent_id": "a1", "task_type": "echo", "payload": {}},
+        headers=headers,
+    )
     assert resp.status_code == 200
     task_id = resp.json()["task_id"]
 
-    resp2 = client.delete(f"/tasks/{task_id}")
+    resp2 = client.delete(f"/tasks/{task_id}", headers=headers)
     assert resp2.status_code == 200
 
 

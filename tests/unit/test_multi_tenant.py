@@ -61,7 +61,7 @@ async def test_api_key_generation(tenant_manager):
 
     # Verify tenant has the key
     updated = await tenant_manager.get_tenant(tenant.tenant_id)
-    assert any(k.get('key') == api_key for k in updated.api_keys)
+    assert any("key_hash" in k for k in updated.api_keys)
 
 
 @pytest.mark.asyncio

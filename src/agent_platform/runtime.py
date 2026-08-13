@@ -9,6 +9,7 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.agent_platform.db import ensure_schema, get_session_factory
+from src.agent_platform.multi_tenant.manager import TenantManager
 from src.agent_platform.scheduler.in_memory import InMemoryTaskQueue
 from src.agent_platform.scheduler.redis_queue import RedisTaskQueue
 from src.agent_platform.scheduler.scheduler import TaskScheduler
@@ -16,6 +17,14 @@ from src.agent_platform.scheduler.scheduler import TaskScheduler
 
 def _queue_backend() -> str:
     return os.getenv("TASK_QUEUE_BACKEND", "memory").strip().lower()
+
+
+class _TenantStorage:
+    def __init__(self) -> None:
+        self._tenants = {}
+
+
+_tenant_storage = _TenantStorage()
 
 
 @lru_cache(maxsize=1)
@@ -37,12 +46,19 @@ def get_scheduler() -> TaskScheduler:
     return TaskScheduler(get_task_queue())
 
 
+@lru_cache(maxsize=1)
+def get_tenant_manager() -> TenantManager:
+    return TenantManager(_tenant_storage)
+
+
 def reset_runtime_cache() -> None:
     """Reset cached runtime objects. Useful for tests."""
     get_scheduler.cache_clear()
     get_task_queue.cache_clear()
     get_redis_client.cache_clear()
+    get_tenant_manager.cache_clear()
     get_session_factory.cache_clear()
+    _tenant_storage._tenants.clear()
 
 
 async def prepare_runtime() -> None:

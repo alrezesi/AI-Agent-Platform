@@ -2,7 +2,7 @@
 # REST API endpoints for task management
 
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Query, Depends, Body
+from fastapi import APIRouter, HTTPException, Query, Depends, Body, Request
 
 from src.agent_platform.core.task import TaskPriority, TaskStatus
 from src.agent_platform.scheduler.scheduler import TaskScheduler
@@ -17,6 +17,13 @@ def get_scheduler() -> TaskScheduler:
     return get_runtime_scheduler()
 
 
+def get_current_tenant_id(request: Request) -> str:
+    tenant_id = getattr(request.state, "tenant_id", None)
+    if not tenant_id:
+        raise HTTPException(status_code=401, detail="Tenant authentication required")
+    return tenant_id
+
+
 @router.post("/")
 async def submit_task(
     agent_id: str = Body(...),
@@ -26,7 +33,7 @@ async def submit_task(
     priority: TaskPriority = Body(TaskPriority.MEDIUM),
     timeout_seconds: int = Body(30),
     max_retries: int = Body(3),
-    tenant_id: Optional[str] = Body(None),
+    tenant_id: str = Depends(get_current_tenant_id),
     scheduler: TaskScheduler = Depends(get_scheduler),
 ):
     """Submit a new task."""
@@ -43,40 +50,14 @@ async def submit_task(
     return {"task_id": task_id, "status": "submitted"}
 
 
-@router.get("/{task_id}")
-async def get_task(
-    task_id: str,
-    tenant_id: Optional[str] = None,
-    scheduler: TaskScheduler = Depends(get_scheduler),
-):
-    """Get task details by ID."""
-    task = await scheduler.get_task(task_id, tenant_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return task
-
-
-@router.delete("/{task_id}")
-async def cancel_task(
-    task_id: str,
-    tenant_id: Optional[str] = None,
-    scheduler: TaskScheduler = Depends(get_scheduler),
-):
-    """Cancel a pending task."""
-    cancelled = await scheduler.cancel_task(task_id, tenant_id)
-    if not cancelled:
-        raise HTTPException(status_code=404, detail="Task not found or cannot be cancelled")
-    return {"status": "cancelled"}
-
-
 @router.get("/")
 async def list_tasks(
     agent_id: Optional[str] = Query(None),
     status: Optional[TaskStatus] = Query(None),
     priority: Optional[TaskPriority] = Query(None),
-    tenant_id: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    tenant_id: str = Depends(get_current_tenant_id),
     scheduler: TaskScheduler = Depends(get_scheduler),
 ):
     """List tasks with filtering and pagination."""
@@ -92,9 +73,35 @@ async def list_tasks(
 
 @router.get("/stats")
 async def get_stats(
-    tenant_id: Optional[str] = None,
+    tenant_id: str = Depends(get_current_tenant_id),
     scheduler: TaskScheduler = Depends(get_scheduler),
 ):
     """Get task statistics."""
     stats = await scheduler.get_stats(tenant_id)
     return stats
+
+
+@router.get("/{task_id}")
+async def get_task(
+    task_id: str,
+    tenant_id: str = Depends(get_current_tenant_id),
+    scheduler: TaskScheduler = Depends(get_scheduler),
+):
+    """Get task details by ID."""
+    task = await scheduler.get_task(task_id, tenant_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
+
+
+@router.delete("/{task_id}")
+async def cancel_task(
+    task_id: str,
+    tenant_id: str = Depends(get_current_tenant_id),
+    scheduler: TaskScheduler = Depends(get_scheduler),
+):
+    """Cancel a pending task."""
+    cancelled = await scheduler.cancel_task(task_id, tenant_id)
+    if not cancelled:
+        raise HTTPException(status_code=404, detail="Task not found or cannot be cancelled")
+    return {"status": "cancelled"}

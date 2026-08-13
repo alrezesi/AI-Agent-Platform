@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from src.agent_platform.api.routes import tasks, tenants, monitoring
+from src.agent_platform.multi_tenant.middleware import TenantMiddleware
 from src.agent_platform.runtime import prepare_runtime
 
 @asynccontextmanager
@@ -22,10 +23,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(TenantMiddleware)
+
 # Register routes
 app.include_router(tasks.router)
 app.include_router(tenants.router)
 app.include_router(monitoring.router)
+
+
 @app.get("/health")
 async def health_check():
     return JSONResponse(content={"status": "ok", "version": "0.1.0"})

@@ -1,8 +1,6 @@
 
 # Tenant authentication utilities
 
-import hashlib
-import hmac
 import secrets
 from typing import Optional, Dict, Any
 
@@ -23,10 +21,9 @@ class TenantAuthenticator:
         Authenticate using API key.
         Returns tenant_id if valid, None otherwise.
         """
-        tenants = await self.tenant_manager.list_tenants(limit=1000)
-        for tenant in tenants:
-            if tenant.has_api_key(api_key) and tenant.is_active():
-                return tenant.tenant_id
+        tenant = await self.tenant_manager.get_tenant_by_api_key(api_key)
+        if tenant and tenant.is_active():
+            return tenant.tenant_id
         return None
 
     async def authenticate_tenant(self, tenant_id: str, api_key: Optional[str] = None) -> bool:
@@ -48,6 +45,9 @@ class TenantAuthenticator:
         """
         Verify HMAC signature for webhook/notification authentication.
         """
+        import hashlib
+        import hmac
+
         # Sort keys and create a canonical string
         sorted_payload = "&".join(f"{k}={v}" for k, v in sorted(payload.items()))
         expected = hmac.new(
