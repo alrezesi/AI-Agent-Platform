@@ -7,14 +7,14 @@ from fastapi import APIRouter, HTTPException, Query, Depends, Body
 from src.agent_platform.core.task import TaskPriority, TaskStatus
 from src.agent_platform.scheduler.scheduler import TaskScheduler
 from src.agent_platform.scheduler.models import TaskFilterOptions
+from src.agent_platform.runtime import get_scheduler as get_runtime_scheduler
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 
 # Dependency: get scheduler instance (will be injected in main app)
 def get_scheduler() -> TaskScheduler:
-    from src.agent_platform.scheduler.in_memory import InMemoryTaskQueue
-    return TaskScheduler(InMemoryTaskQueue())
+    return get_runtime_scheduler()
 
 
 @router.post("/")
@@ -22,6 +22,7 @@ async def submit_task(
     agent_id: str = Body(...),
     task_type: str = Body(...),
     payload: dict = Body(...),
+    task_id: Optional[str] = Body(None),
     priority: TaskPriority = Body(TaskPriority.MEDIUM),
     timeout_seconds: int = Body(30),
     max_retries: int = Body(3),
@@ -33,6 +34,7 @@ async def submit_task(
         agent_id=agent_id,
         task_type=task_type,
         payload=payload,
+        task_id=task_id,
         priority=priority,
         timeout_seconds=timeout_seconds,
         max_retries=max_retries,
