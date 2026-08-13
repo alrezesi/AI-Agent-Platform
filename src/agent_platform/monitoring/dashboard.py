@@ -4,7 +4,7 @@
 import asyncio
 import logging
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .metrics import MetricsCollector, MetricRegistry
 from .tracing import Tracer, TraceSpan
@@ -49,7 +49,7 @@ class DashboardAPI:
 
         return {
             "status": "healthy",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "uptime_seconds": metrics.get("uptime_seconds", 0),
             "agents": {
                 "total": agent_count,
