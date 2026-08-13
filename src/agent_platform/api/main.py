@@ -1,25 +1,31 @@
 # src/agent_platform/api/main.py
 # FastAPI application entrypoint
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 from src.agent_platform.api.routes import tasks, tenants, monitoring
+from src.agent_platform.runtime import prepare_runtime
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await prepare_runtime()
+    yield
+
 
 app = FastAPI(
     title="AI Agent Platform",
     description="Multi-agent orchestration system",
-    version="0.1.0"
+    version="0.1.0",
+    lifespan=lifespan,
 )
 
 # Register routes
 app.include_router(tasks.router)
 app.include_router(tenants.router)
 app.include_router(monitoring.router)
-
-
 @app.get("/health")
 async def health_check():
     return JSONResponse(content={"status": "ok", "version": "0.1.0"})
@@ -48,7 +54,7 @@ async def root():
             <p>
               <a href="/docs">API Docs</a>
               <a href="/redoc">ReDoc</a>
-              <a href="/monitoring/dashboard">Monitoring Dashboard</a>
+              <a href="/monitoring/status">Monitoring Status</a>
               <a href="/health">Health Check</a>
             </p>
             <p>Base URL: <code>/</code></p>
