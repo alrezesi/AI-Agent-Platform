@@ -3,7 +3,7 @@
 
 import json
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, delete, update, func
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
@@ -18,6 +18,10 @@ class Base(DeclarativeBase):
     pass
 
 
+def utcnow_naive() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 class AgentORM(Base):
     __tablename__ = "agents"
 
@@ -28,8 +32,8 @@ class AgentORM(Base):
     status: Mapped[str] = mapped_column(String(20), default=AgentStatus.ACTIVE.value)
     endpoint: Mapped[Optional[str]] = mapped_column(String(255))
     metadata_json: Mapped[Optional[str]] = mapped_column(String(2000))  # JSON
-    registered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    last_heartbeat: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    registered_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive)
+    last_heartbeat: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive)
     tenant_id: Mapped[Optional[str]] = mapped_column(String(64), index=True)
 
     def to_record(self) -> AgentRecord:
@@ -68,7 +72,7 @@ class PostgresAgentRegistry(BaseAgentRegistry):
                 existing.status = agent.status.value
                 existing.endpoint = agent.endpoint
                 existing.metadata_json = json.dumps(agent.metadata)
-                existing.last_heartbeat = datetime.utcnow()
+                existing.last_heartbeat = utcnow_naive()
                 existing.tenant_id = agent.tenant_id
             else:
                 # Insert
@@ -80,8 +84,8 @@ class PostgresAgentRegistry(BaseAgentRegistry):
                     status=agent.status.value,
                     endpoint=agent.endpoint,
                     metadata_json=json.dumps(agent.metadata),
-                    registered_at=datetime.utcnow(),
-                    last_heartbeat=datetime.utcnow(),
+                    registered_at=utcnow_naive(),
+                    last_heartbeat=utcnow_naive(),
                     tenant_id=agent.tenant_id,
                 )
                 session.add(orm)
@@ -113,7 +117,7 @@ class PostgresAgentRegistry(BaseAgentRegistry):
             stmt = (
                 update(AgentORM)
                 .where(AgentORM.agent_id == agent_id)
-                .values(last_heartbeat=datetime.utcnow())
+                .values(last_heartbeat=utcnow_naive())
             )
             if tenant_id:
                 stmt = stmt.where(AgentORM.tenant_id == tenant_id)
@@ -167,7 +171,7 @@ class PostgresAgentRegistry(BaseAgentRegistry):
 
     async def cleanup_stale(self, ttl_seconds: int = 60) -> int:
         async with self.session_factory() as session:
-            cutoff = datetime.utcnow() - timedelta(seconds=ttl_seconds)
+            cutoff = utcnow_naive() - timedelta(seconds=ttl_seconds)
             stmt = delete(AgentORM).where(AgentORM.last_heartbeat < cutoff)
             result = await session.execute(stmt)
             await session.commit()
