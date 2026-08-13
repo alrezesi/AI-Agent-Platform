@@ -5,7 +5,7 @@ import json
 import asyncio
 import logging
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from dataclasses import dataclass, field
 
@@ -32,7 +32,7 @@ class DeadLetterEntry:
     original_data: Dict[str, Any]
     reason: DeadLetterReason
     error_message: Optional[str] = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     retry_count: int = 0
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -65,7 +65,7 @@ class DeadLetterQueue:
                 logger.warning(f"Dead letter queue at max size ({self._max_size}), oldest entry will be evicted")
                 self._entries.pop(0)
 
-            entry_id = f"dlq-{datetime.utcnow().timestamp()}-{len(self._entries)}"
+            entry_id = f"dlq-{datetime.now(timezone.utc).timestamp()}-{len(self._entries)}"
             entry = DeadLetterEntry(
                 id=entry_id,
                 source=source,
