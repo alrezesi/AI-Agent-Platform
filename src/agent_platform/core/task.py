@@ -4,7 +4,7 @@
 from enum import Enum
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class TaskStatus(str, Enum):
@@ -32,7 +32,7 @@ class Task(BaseModel):
     payload: Dict[str, Any] = Field(default_factory=dict)
     priority: TaskPriority = TaskPriority.MEDIUM
     status: TaskStatus = TaskStatus.PENDING
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     result: Optional[Any] = None
