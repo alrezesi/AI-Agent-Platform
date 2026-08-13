@@ -6,7 +6,7 @@ import logging
 import sys
 from enum import Enum
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 
 
@@ -24,7 +24,7 @@ class LogEntry:
     """
     A structured log entry.
     """
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     level: LogLevel = LogLevel.INFO
     message: str = ""
     logger_name: str = ""
