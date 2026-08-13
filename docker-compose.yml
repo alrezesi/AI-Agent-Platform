@@ -1,5 +1,3 @@
-﻿version: '3.8'
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -28,6 +26,46 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  api:
+    build: . 
+    container_name: agent_platform_api
+    command: ["uvicorn", "src.agent_platform.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      TASK_QUEUE_BACKEND: redis
+      REDIS_URL: redis://redis:6379/1
+      DATABASE_URL: postgresql://user:pass@postgres:5432/agent_platform
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  worker-1:
+    build: .
+    container_name: agent_platform_worker_1
+    command: ["python", "scripts/run_worker.py", "--worker-id", "worker-1", "--lease-seconds", "5"]
+    environment:
+      TASK_QUEUE_BACKEND: redis
+      REDIS_URL: redis://redis:6379/1
+      DATABASE_URL: postgresql://user:pass@postgres:5432/agent_platform
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  worker-2:
+    build: .
+    container_name: agent_platform_worker_2
+    command: ["python", "scripts/run_worker.py", "--worker-id", "worker-2", "--lease-seconds", "5"]
+    environment:
+      TASK_QUEUE_BACKEND: redis
+      REDIS_URL: redis://redis:6379/1
+      DATABASE_URL: postgresql://user:pass@postgres:5432/agent_platform
+    depends_on:
+      redis:
+        condition: service_healthy
 
 volumes:
   postgres_data:
