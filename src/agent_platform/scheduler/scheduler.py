@@ -23,6 +23,7 @@ class TaskScheduler:
         agent_id: str,
         task_type: str,
         payload: dict,
+        task_id: Optional[str] = None,
         priority: TaskPriority = TaskPriority.MEDIUM,
         timeout_seconds: int = 30,
         max_retries: int = 3,
@@ -32,8 +33,13 @@ class TaskScheduler:
         Submit a new task to the queue.
         Returns the generated task_id.
         """
+        if task_id:
+            existing = await self.queue.get_task(task_id, tenant_id)
+            if existing:
+                return existing.task_id
+
         task = Task(
-            task_id=f"task-{uuid4().hex[:8]}",
+            task_id=task_id or f"task-{uuid4().hex[:8]}",
             agent_id=agent_id,
             type=task_type,
             payload=payload,
