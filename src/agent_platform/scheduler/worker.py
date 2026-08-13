@@ -4,7 +4,7 @@
 import asyncio
 import logging
 from typing import Optional, Callable, Awaitable, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.agent_platform.core.task import Task, TaskStatus
 from src.agent_platform.core.agent import BaseAgent
@@ -48,7 +48,7 @@ class TaskWorker:
                 # Success
                 self.task.status = TaskStatus.COMPLETED
                 self.task.result = result
-                self.task.completed_at = datetime.utcnow()
+                self.task.completed_at = datetime.now(timezone.utc)
                 logger.info(f"Task {self.task.task_id} completed successfully on attempt {attempt+1}")
                 break
 
@@ -86,6 +86,6 @@ class TaskWorker:
 
         # Update completed_at if not set (e.g., if it failed without setting)
         if self.task.completed_at is None and self.task.status in (TaskStatus.FAILED, TaskStatus.TIMEOUT, TaskStatus.CANCELLED):
-            self.task.completed_at = datetime.utcnow()
+            self.task.completed_at = datetime.now(timezone.utc)
 
         return self.task
