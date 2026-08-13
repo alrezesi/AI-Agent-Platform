@@ -6,7 +6,7 @@ import json
 import asyncio
 import logging
 from typing import Optional, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 
 from .exceptions import IdempotencyError
@@ -20,7 +20,7 @@ class ExecutionRecord:
     key: str
     result: Any
     status: str  # "completed", "failed", "processing"
-    started_at: datetime = field(default_factory=datetime.utcnow)
+    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: Optional[datetime] = None
     error: Optional[str] = None
 
@@ -93,7 +93,7 @@ class IdempotencyManager:
             record.status = "failed" if error else "completed"
             record.result = result if not error else None
             record.error = error
-            record.completed_at = datetime.utcnow()
+            record.completed_at = datetime.now(timezone.utc)
 
     async def get_result(self, key: str) -> Optional[Any]:
         """
@@ -115,7 +115,7 @@ class IdempotencyManager:
 
     def _cleanup_expired(self) -> None:
         """Remove records older than TTL."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         expired_keys = [
             key for key, rec in self._records.items()
             if (now - rec.started_at).total_seconds() > self._ttl_seconds
