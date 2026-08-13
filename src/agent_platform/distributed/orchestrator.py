@@ -4,7 +4,7 @@
 import asyncio
 import logging
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .node import NodeInfo, NodeStatus
 from .registry import DistributedRegistry
@@ -116,7 +116,7 @@ class DistributedOrchestrator:
                     last_heartbeat_str = node_data.get('last_heartbeat')
                     if last_heartbeat_str:
                         last_heartbeat = datetime.fromisoformat(last_heartbeat_str)
-                        age = (datetime.utcnow() - last_heartbeat).total_seconds()
+                        age = (datetime.now(timezone.utc) - last_heartbeat).total_seconds()
                         if age > 60:  # More than 60 seconds
                             logger.warning(f"Node {node_id} has stale heartbeat, marking as offline")
                             node_data['status'] = NodeStatus.OFFLINE.value
