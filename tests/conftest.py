@@ -1,212 +1,59 @@
-import asyncio
-import fnmatch
-import sys
-import types
-from collections import defaultdict
+
+# Shared fixtures and configuration for all tests
 
 import pytest
+from fastapi import FastAPI
+
+# Import runtime to monkeypatch
+from src.agent_platform import runtime
+from src.agent_platform.api.main import app as original_app
+from src.agent_platform.api.routes.tenants import get_tenant_manager as original_get_tenant_manager
+from src.agent_platform.api.routes.tasks import get_scheduler as original_get_scheduler
+from src.agent_platform.multi_tenant.manager import TenantManager
+from src.agent_platform.scheduler.scheduler import TaskScheduler
+from src.agent_platform.scheduler.in_memory import InMemoryTaskQueue
 
 
-def _install_fake_redis() -> None:
-    try:
-        import redis.asyncio  # noqa: F401
-        return
-    except ImportError:
-        pass
+# Shared storage for tenants (persists across the test session)
+class SharedStorage:
+    _tenants = {}
 
-    class _RedisState:
-        def __init__(self) -> None:
-            self.kv = {}
-            self.zsets = defaultdict(dict)
-            self.sets = defaultdict(set)
-            self.lists = defaultdict(list)
-            self.pubsubs = []
+shared_storage = SharedStorage()
 
-        def clear(self) -> None:
-            self.kv.clear()
-            self.zsets.clear()
-            self.sets.clear()
-            self.lists.clear()
+# Singleton tenant manager instance
+_tenant_manager = None
 
-    class _FakePubSub:
-        def __init__(self, client):
-            self._client = client
-            self._channels = set()
-            self._queue = asyncio.Queue()
-            self._closed = False
-            client._state.pubsubs.append(self)
-
-        async def connect(self):
-            return None
-
-        async def subscribe(self, *channels):
-            self._channels.update(channels)
-
-        async def unsubscribe(self, *channels):
-            if channels:
-                self._channels.difference_update(channels)
-            else:
-                self._channels.clear()
-
-        async def get_message(self, ignore_subscribe_messages=True, timeout=1.0):
-            if self._closed:
-                return None
-            try:
-                return await asyncio.wait_for(self._queue.get(), timeout=timeout)
-            except asyncio.TimeoutError:
-                return None
-
-        async def aclose(self):
-            self._closed = True
-            if self in self._client._state.pubsubs:
-                self._client._state.pubsubs.remove(self)
-
-    class Redis:
-        _states = {}
-
-        def __init__(self, url="redis://localhost:6379/0"):
-            self.url = url
-            self._state = self._states.setdefault(url, _RedisState())
-
-        @classmethod
-        def from_url(cls, url, *args, **kwargs):
-            return cls(url)
-
-        def pubsub(self):
-            return _FakePubSub(self)
-
-        async def flushall(self):
-            self._state.clear()
-            return True
-
-        async def aclose(self):
-            return None
-
-        async def set(self, key, value, nx=False, ex=None):
-            if nx and key in self._state.kv:
-                return False
-            self._state.kv[key] = value.encode("utf-8") if isinstance(value, str) else value
-            return True
-
-        async def setex(self, key, ttl, value):
-            return await self.set(key, value, ex=ttl)
-
-        async def get(self, key):
-            return self._state.kv.get(key)
-
-        async def exists(self, key):
-            return 1 if key in self._state.kv else 0
-
-        async def delete(self, *keys):
-            removed = 0
-            for key in keys:
-                if key in self._state.kv:
-                    del self._state.kv[key]
-                    removed += 1
-            return removed
-
-        async def zadd(self, key, mapping):
-            bucket = self._state.zsets[key]
-            bucket.update(mapping)
-            return len(mapping)
-
-        async def zpopmin(self, key, count=1):
-            bucket = self._state.zsets.get(key, {})
-            items = sorted(bucket.items(), key=lambda item: item[1])[:count]
-            for member, _ in items:
-                bucket.pop(member, None)
-            return items
-
-        async def zrange(self, key, start, end, withscores=False):
-            bucket = self._state.zsets.get(key, {})
-            items = sorted(bucket.items(), key=lambda item: item[1])
-            sliced = items[start : None if end == -1 else end + 1]
-            if withscores:
-                return sliced
-            return [member for member, _ in sliced]
-
-        async def zrem(self, key, *members):
-            bucket = self._state.zsets.get(key, {})
-            removed = 0
-            for member in members:
-                if member in bucket:
-                    del bucket[member]
-                    removed += 1
-            return removed
-
-        async def zcard(self, key):
-            return len(self._state.zsets.get(key, {}))
-
-        async def scan(self, cursor=0, match=None, count=100):
-            keys = list(self._state.kv.keys())
-            if match:
-                keys = [key for key in keys if fnmatch.fnmatch(key, match)]
-            return 0, keys
-
-        async def sadd(self, key, *members):
-            bucket = self._state.sets[key]
-            before = len(bucket)
-            bucket.update(members)
-            return len(bucket) - before
-
-        async def smembers(self, key):
-            return set(self._state.sets.get(key, set()))
-
-        async def srem(self, key, *members):
-            bucket = self._state.sets.get(key, set())
-            removed = 0
-            for member in members:
-                if member in bucket:
-                    bucket.remove(member)
-                    removed += 1
-            return removed
-
-        async def lpush(self, key, *values):
-            bucket = self._state.lists[key]
-            for value in values:
-                bucket.insert(0, value)
-            return len(bucket)
-
-        async def rpop(self, key):
-            bucket = self._state.lists.get(key, [])
-            if not bucket:
-                return None
-            value = bucket.pop()
-            return value.encode("utf-8") if isinstance(value, str) else value
-
-        async def publish(self, channel, message):
-            for pubsub in list(self._state.pubsubs):
-                if channel in pubsub._channels:
-                    pubsub._queue.put_nowait({"type": "message", "channel": channel, "data": message})
-            return len(self._state.pubsubs)
-
-        async def eval(self, script, numkeys, *args):
-            key = args[0]
-            owner = args[1]
-            current = self._state.kv.get(key)
-            if current is None:
-                return 0
-            current_value = current.decode("utf-8") if isinstance(current, (bytes, bytearray)) else current
-            if current_value != owner:
-                return 0
-            if "del" in script:
-                self._state.kv.pop(key, None)
-                return 1
-            if "expire" in script:
-                return 1
-            return 0
-
-    redis_module = types.ModuleType("redis")
-    asyncio_module = types.ModuleType("redis.asyncio")
-    asyncio_module.Redis = Redis
-    redis_module.asyncio = asyncio_module
-    sys.modules["redis"] = redis_module
-    sys.modules["redis.asyncio"] = asyncio_module
+def get_test_tenant_manager() -> TenantManager:
+    """Return a singleton TenantManager for tests."""
+    global _tenant_manager
+    if _tenant_manager is None:
+        _tenant_manager = TenantManager(shared_storage)
+        # Rebuild index to ensure it's fresh
+        _tenant_manager._rebuild_api_key_index()
+    return _tenant_manager
 
 
-_install_fake_redis()
+# CRITICAL: Override runtime.get_tenant_manager to use the test singleton
+# This ensures the middleware uses the same manager instance as the tests.
+runtime.get_tenant_manager = get_test_tenant_manager
 
 
-@pytest.hookimpl(tryfirst=True)
-def pytest_configure(config):
-    config.addinivalue_line("markers", "asyncio: mark a test as running in asyncio")
+# Singleton scheduler instance
+_scheduler = None
+
+def get_test_scheduler() -> TaskScheduler:
+    """Return a singleton TaskScheduler for tests."""
+    global _scheduler
+    if _scheduler is None:
+        _scheduler = TaskScheduler(InMemoryTaskQueue())
+    return _scheduler
+
+
+# Override the app with test dependencies
+@pytest.fixture(scope="session")
+def app() -> FastAPI:
+    """Return a FastAPI app with test dependency overrides."""
+    app = original_app
+    app.dependency_overrides[original_get_tenant_manager] = get_test_tenant_manager
+    app.dependency_overrides[original_get_scheduler] = get_test_scheduler
+    return app

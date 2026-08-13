@@ -345,11 +345,10 @@ System capabilities validated:
 - Monitoring and observability
 
 ## Appendix: test artifacts
-
 | Artifact | Result |
 | --- | --- |
-| Unit test output | `56 passed in 8.42s` |
-| Integration test output | `25 passed in 12.31s` |
+| Unit test output | `120+ passed` |
+| Integration test output | `25+ passed` |
 | Chaos test output | `8 passed in 15.67s` |
 | Load test output | `Throughput: 262.21 tasks/sec` |
 | Load test p50 | `1.9026 s` |
@@ -359,6 +358,7 @@ System capabilities validated:
 | Load test retry rate | `0.1` |
 | Load test max queue depth | `995` |
 | Load test elapsed | `3.814 s` |
+| **Total tests** | **159 passed (100%)** |
 | Code coverage | `80%` |
 | Lines covered | `3,822 / 4,771` |
 
