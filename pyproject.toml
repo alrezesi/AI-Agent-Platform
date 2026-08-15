@@ -4,39 +4,60 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-agent-platform"
-version = "0.1.0"
-description = "AI Agent Platform with multi-agent orchestration"
+version = "0.2.0"
+description = "Production-ready AI Agent orchestration platform with multi-agent, workflow, and resilience"
 readme = "README.md"
-authors = [{name = "Your Name", email = "you@example.com"}]
+authors = [{name = "Alireza", email = "alireza@example.com"}]
 license = {text = "MIT"}
 requires-python = ">=3.11"
 dependencies = [
-    "fastapi",
-    "uvicorn[standard]",
-    "pydantic",
-    "pydantic-settings",
-    "redis",
-    "asyncpg",
-    "sqlalchemy",
-    "alembic",
-    "httpx",
-    "python-dotenv",
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "redis>=5.0.0",
+    "asyncpg>=0.29.0",
+    "sqlalchemy>=2.0.23",
+    "alembic>=1.12.0",
+    "httpx>=0.25.0",
+    "prometheus-client>=0.19.0",
+    "opentelemetry-api>=1.21.0",
+    "opentelemetry-sdk>=1.21.0",
+    "pyyaml>=6.0",
+    "jinja2>=3.1.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
-    "pytest-asyncio",
-    "pytest-cov",
-    "black",
-    "ruff",
-    "mypy",
-    "pre-commit",
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.11.0",
+    "ruff>=0.1.0",
+    "mypy>=1.7.0",
+    "pre-commit>=3.5.0",
+    "docker>=6.1.0",
+    "locust>=2.20.0",
+]
+# ML dependencies (large, install separately if needed)
+ml = [
+    "transformers>=4.36.0",
+    "sentence-transformers>=2.2.0",
+    "torch>=2.1.0",
+    "accelerate>=0.25.0",
 ]
 
 [tool.pytest.ini_options]
+asyncio_mode = "auto"
 testpaths = ["tests"]
-pythonpath = ["."]
+addopts = "--cov=src/agent_platform --cov-report=term --cov-report=html"
+markers = [
+    "asyncio: marks tests as async",
+    "integration: marks tests as integration tests",
+    "chaos: marks chaos engineering tests",
+    "e2e: marks end-to-end tests",
+]
 
 [tool.black]
 line-length = 100
@@ -45,3 +66,24 @@ target-version = ['py311']
 [tool.ruff]
 line-length = 100
 select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true
+warn_return_any = true
+warn_unused_ignores = true
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["tests/*", "scripts/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]

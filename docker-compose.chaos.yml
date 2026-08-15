@@ -1,0 +1,99 @@
+
+# Docker Compose configuration for Chaos Engineering tests
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: chaos_postgres
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: agent_platform
+    ports:
+      - "5433:5432"  # Use different port to avoid conflict with local PostgreSQL
+    volumes:
+      - chaos_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - chaos_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: chaos_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - chaos_net
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ai-agent-platform:chaos
+    container_name: chaos_api
+    command: uvicorn src.agent_platform.api.main:app --host 0.0.0.0 --port 8000 --workers 1
+    environment:
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/agent_platform
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=INFO
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - chaos_net
+
+  worker1:
+    image: ai-agent-platform:chaos
+    container_name: chaos_worker1
+    command: python scripts/run_worker.py --node-id worker1 --port 8001
+    environment:
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/agent_platform
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    networks:
+      - chaos_net
+
+  worker2:
+    image: ai-agent-platform:chaos
+    container_name: chaos_worker2
+    command: python scripts/run_worker.py --node-id worker2 --port 8002
+    environment:
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/agent_platform
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    networks:
+      - chaos_net
+
+volumes:
+  chaos_postgres_data:
+
+networks:
+  chaos_net:
+    driver: bridge

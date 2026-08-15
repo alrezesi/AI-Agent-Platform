@@ -1,106 +1,144 @@
-"""Redis-backed worker process for the chaos/hardening deployment."""
+# Worker node runner for Chaos Engineering tests
 
-from __future__ import annotations
-
-import argparse
 import asyncio
+import argparse
 import logging
-import signal
-from collections import defaultdict
-from typing import Any, Dict
+import sys
+import os
+from pathlib import Path
 
-from src.agent_platform.core.agent import BaseAgent, AgentRuntimeState
+# Add project root to Python path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+
+from src.agent_platform.core.agent import AgentRecord, AgentStatus, AgentCapability, BaseAgent
+from src.agent_platform.distributed.registry import DistributedRegistry
+from src.agent_platform.distributed.queue import DistributedTaskQueue
+from src.agent_platform.distributed.worker import WorkerNode, WorkerConfig
+from src.agent_platform.distributed.node import NodeInfo
 from src.agent_platform.core.task import Task
-from src.agent_platform.runtime import get_task_queue
-from src.agent_platform.scheduler.worker import TaskWorker
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-logger = logging.getLogger("agent_platform.worker")
+# Import real agents
+from src.agents import BGEM3Agent, GemmaAgent
+from src.agents.bge_m3_agent import BGE_MODEL_PATH
+from src.agents.gemma_agent import GEMMA_MODEL_PATH
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 
-class ChaosWorkerAgent(BaseAgent):
-    """Simple worker-side agent used by the integration harness."""
-
-    def __init__(self, agent_id: str, name: str, tenant_id: str | None = None):
-        super().__init__(agent_id, name, tenant_id)
-        self._attempts: Dict[str, int] = defaultdict(int)
-
+class EchoAgent(BaseAgent):
+    """Simple Echo agent for testing."""
     async def initialize(self) -> None:
-        self.state = AgentRuntimeState.RUNNING
         self._initialized = True
+        self.state = AgentRuntimeState.RUNNING  # noqa: F821
+        logger.info(f"EchoAgent {self.agent_id} initialized")
 
-    async def run(self, task: Task) -> Any:
-        payload = task.payload or {}
-        delay_seconds = float(payload.get("delay_seconds", 0))
-        if delay_seconds > 0:
-            await asyncio.sleep(delay_seconds)
-
-        fail_times = int(payload.get("fail_times", 0))
-        if fail_times > 0:
-            self._attempts[task.task_id] += 1
-            if self._attempts[task.task_id] <= fail_times:
-                raise ValueError(f"Injected failure {self._attempts[task.task_id]}/{fail_times}")
-
-        return {
-            "task_id": task.task_id,
-            "worker_agent_id": self.agent_id,
-            "worker_name": self.name,
-            "payload": payload,
-        }
+    async def run(self, task: Task) -> str:
+        message = task.payload.get("message", "")
+        logger.info(f"EchoAgent {self.agent_id} processing task {task.task_id}: {message}")
+        return f"Echo: {message}"
 
     async def shutdown(self) -> None:
-        self.state = AgentRuntimeState.STOPPED
         self._initialized = False
+        logger.info(f"EchoAgent {self.agent_id} shut down")
 
 
-async def run_worker(worker_id: str, lease_seconds: float) -> None:
-    queue = get_task_queue()
-    agent = ChaosWorkerAgent(agent_id="default-agent", name=worker_id)
-    await agent.initialize()
-
-    if hasattr(queue, "recover_orphaned_tasks"):
-        await queue.recover_orphaned_tasks()
-
-    stop_event = asyncio.Event()
-
-    def _signal_handler() -> None:
-        stop_event.set()
-
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
-            loop.add_signal_handler(sig, _signal_handler)
-        except NotImplementedError:
-            pass
-
-    logger.info("Worker %s started", worker_id)
-    try:
-        while not stop_event.is_set():
-            if hasattr(queue, "reclaim_orphaned_tasks"):
-                await queue.reclaim_orphaned_tasks()
-            if hasattr(queue, "reclaim_expired_tasks"):
-                await queue.reclaim_expired_tasks()
-
-            task = await queue.dequeue(worker_id=worker_id, lease_seconds=lease_seconds)
-            if task is None:
-                await asyncio.sleep(0.25)
-                continue
-
-            worker = TaskWorker(task, agent, retry_delay_base=0.1, retry_delay_max=2.0)
-            result = await worker.execute()
-            await queue.update_task(result)
-    finally:
-        await agent.shutdown()
-        logger.info("Worker %s stopped", worker_id)
+async def register_agent(registry, agent_instance):
+    """Register an agent instance in the registry."""
+    record = AgentRecord(
+        agent_id=agent_instance.agent_id,
+        name=agent_instance.name,
+        capabilities=[],
+        status=AgentStatus.ACTIVE,
+        tenant_id=agent_instance.tenant_id,
+    )
+    await registry.register(record)
+    logger.info(f"Agent {agent_instance.agent_id} registered")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--worker-id", required=True)
-    parser.add_argument("--lease-seconds", type=float, default=30.0)
+async def main():
+    """Main worker entry point."""
+    parser = argparse.ArgumentParser(description="Run a Chaos worker node.")
+    parser.add_argument("--node-id", default="worker1", help="Unique node identifier")
+    parser.add_argument("--port", type=int, default=8001, help="Port for node registration")
     args = parser.parse_args()
-    asyncio.run(run_worker(args.worker_id, args.lease_seconds))
+
+    database_url = os.getenv("DATABASE_URL", "postgresql+asyncpg://user:pass@postgres:5432/agent_platform")
+    redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
+
+    logger.info(f"Starting Chaos worker: {args.node_id} on port {args.port}")
+
+    redis_client = Redis.from_url(redis_url)
+    engine = create_async_engine(database_url, echo=False)
+    session_factory = async_sessionmaker(engine)
+
+    registry = DistributedRegistry(redis_client)
+    queue = DistributedTaskQueue(redis_client)
+
+    config = WorkerConfig(
+        max_concurrent_tasks=5,
+        poll_interval=0.5,
+        node_heartbeat_interval=10.0,
+        task_timeout_seconds=30,
+    )
+
+    node_info = NodeInfo.create(port=args.port)
+    node_info.node_id = args.node_id
+
+    worker = WorkerNode(node_info, queue, registry, config)
+    await worker.start()
+
+    # --- Register agents ---
+
+    # 1. EchoAgent (for testing)
+    echo_agent = EchoAgent(agent_id="echo-agent", name="Echo Test Agent", tenant_id=None)
+    await register_agent(registry, echo_agent)
+
+    # 2. BGE-M3 embedding agent
+    try:
+        bge_agent = BGEM3Agent(
+            agent_id="bge-m3",
+            name="BGE-M3 Embedding",
+            model_path=BGE_MODEL_PATH,  # uses default path from agent file
+            device="cpu",               # change to "cuda" if GPU is available
+            tenant_id=None,
+        )
+        await bge_agent.initialize()
+        await register_agent(registry, bge_agent)
+        logger.info("BGE-M3 agent registered and initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize BGE-M3 agent: {e}")
+
+    # 3. Gemma 2 2B text generation agent
+    try:
+        gemma_agent = GemmaAgent(
+            agent_id="gemma-2b",
+            name="Gemma 2 2B",
+            model_path=GEMMA_MODEL_PATH,
+            device="cpu",
+            tenant_id=None,
+        )
+        await gemma_agent.initialize()
+        await register_agent(registry, gemma_agent)
+        logger.info("Gemma agent registered and initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize Gemma agent: {e}")
+
+    logger.info("All agents registered. Worker is ready.")
+
+    # Keep the worker running until interrupted
+    try:
+        await asyncio.Event().wait()
+    except KeyboardInterrupt:
+        logger.info("Shutting down worker...")
+        await worker.stop()
+        await redis_client.close()
+        await engine.dispose()
+        logger.info("Worker stopped.")
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
