@@ -2,9 +2,9 @@
 # Distributed lock using Redis with TTL and auto-release
 
 import asyncio
-import uuid
 import logging
-from typing import Any, Optional, TYPE_CHECKING
+import uuid
+from typing import TYPE_CHECKING, Any
 
 try:
     from redis.asyncio import Redis
@@ -34,7 +34,7 @@ class DistributedLock:
         self._lock_id = None
         self._locked = False
 
-    async def acquire(self, wait_timeout: Optional[float] = None) -> bool:
+    async def acquire(self, wait_timeout: float | None = None) -> bool:
         """
         Acquire the lock.
         If wait_timeout is provided, retry until timeout.

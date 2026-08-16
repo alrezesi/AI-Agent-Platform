@@ -1,11 +1,12 @@
 
 # Unit tests for TaskWorker
 
-import pytest
 import asyncio
 
-from src.agent_platform.core.task import Task, TaskStatus, TaskPriority
-from src.agent_platform.core.agent import BaseAgent, AgentRuntimeState
+import pytest
+
+from src.agent_platform.core.agent import AgentRuntimeState, BaseAgent
+from src.agent_platform.core.task import Task, TaskStatus
 from src.agent_platform.scheduler.worker import TaskWorker
 
 

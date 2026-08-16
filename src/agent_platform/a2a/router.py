@@ -1,19 +1,18 @@
 
 # Routing Agent for intelligent delegation of requests
 
-from enum import Enum
-from typing import Optional, Dict, Any, List
-from dataclasses import dataclass, field
 import logging
+from dataclasses import dataclass, field
+from enum import StrEnum
+from typing import Any
 
-from .exceptions import RoutingError
+from src.agent_platform.core.agent import AgentRecord
 from src.agent_platform.registry.base import BaseAgentRegistry
-from src.agent_platform.core.agent import AgentRecord, AgentCapability
 
 logger = logging.getLogger(__name__)
 
 
-class RoutingStrategy(str, Enum):
+class RoutingStrategy(StrEnum):
     """Routing strategy for selecting an agent."""
     ROUND_ROBIN = "round_robin"
     LEAST_LOADED = "least_loaded"
@@ -27,11 +26,11 @@ class RouteDecision:
     """
     Decision made by the router.
     """
-    target_agent_id: Optional[str]
+    target_agent_id: str | None
     confidence: float = 1.0
     strategy: RoutingStrategy = RoutingStrategy.CAPABILITY_MATCH
-    reason: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    reason: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class RoutingAgent:
@@ -43,15 +42,15 @@ class RoutingAgent:
     def __init__(self, registry: BaseAgentRegistry, strategy: RoutingStrategy = RoutingStrategy.CAPABILITY_MATCH):
         self.registry = registry
         self.strategy = strategy
-        self._round_robin_index: Dict[str, int] = {}  # capability -> last index
-        self._load_counts: Dict[str, int] = {}  # agent_id -> current load
+        self._round_robin_index: dict[str, int] = {}  # capability -> last index
+        self._load_counts: dict[str, int] = {}  # agent_id -> current load
 
     async def route(
         self,
         request_type: str,
-        required_capabilities: Optional[List[str]] = None,
-        context: Optional[Dict[str, Any]] = None,
-        tenant_id: Optional[str] = None,
+        required_capabilities: list[str] | None = None,
+        context: dict[str, Any] | None = None,
+        tenant_id: str | None = None,
     ) -> RouteDecision:
         """
         Route a request to the most appropriate agent.
@@ -109,9 +108,9 @@ class RoutingAgent:
 
     async def _find_agents_by_capability(
         self,
-        capabilities: List[str],
-        tenant_id: Optional[str] = None,
-    ) -> List[AgentRecord]:
+        capabilities: list[str],
+        tenant_id: str | None = None,
+    ) -> list[AgentRecord]:
         """Find agents that have all required capabilities."""
         all_agents = await self.registry.list_all(tenant_id=tenant_id)
         matched = []
@@ -122,7 +121,7 @@ class RoutingAgent:
                 matched.append(agent)
         return matched
 
-    def _round_robin_select(self, agents: List[AgentRecord], required_capabilities: Optional[List[str]]) -> AgentRecord:
+    def _round_robin_select(self, agents: list[AgentRecord], required_capabilities: list[str] | None) -> AgentRecord:
         """Round-robin selection among agents."""
         cap_key = ",".join(sorted(required_capabilities or []))
         if cap_key not in self._round_robin_index:
@@ -132,7 +131,7 @@ class RoutingAgent:
         self._round_robin_index[cap_key] = (idx + 1) % len(agents)
         return selected
 
-    def _least_loaded_select(self, agents: List[AgentRecord]) -> AgentRecord:
+    def _least_loaded_select(self, agents: list[AgentRecord]) -> AgentRecord:
         """Select the agent with the least load."""
         # Get load counts for each agent
         loads = {agent.agent_id: self._load_counts.get(agent.agent_id, 0) for agent in agents}

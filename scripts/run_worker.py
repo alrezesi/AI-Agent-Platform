@@ -1,26 +1,22 @@
 import asyncio
 import logging
 import os
-from typing import Dict
 
 from redis.asyncio import Redis
 
+from src.agent_platform.agents.simple import SimpleTaskAgent
 from src.agent_platform.core.agent import (
+    AgentCapability,
     AgentRecord,
     AgentStatus,
-    AgentCapability,
     BaseAgent,
 )
 from src.agent_platform.distributed.node import NodeInfo
 from src.agent_platform.distributed.queue import DistributedTaskQueue
 from src.agent_platform.distributed.registry import DistributedRegistry
-from src.agent_platform.distributed.worker import WorkerNode
-from src.agent_platform.distributed.worker import WorkerConfig
-
-from src.agent_platform.agents.simple import SimpleTaskAgent
+from src.agent_platform.distributed.worker import WorkerConfig, WorkerNode
 from src.agents.bge_m3_agent import BGEM3Agent
 from src.agents.gemma_agent import GemmaAgent
-
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -41,7 +37,7 @@ class RuntimeAgentRegistry:
     """
 
     def __init__(self, distributed_registry: DistributedRegistry):
-        self._agents: Dict[str, BaseAgent] = {}
+        self._agents: dict[str, BaseAgent] = {}
         self.distributed_registry = distributed_registry
 
     async def register(self, agent: BaseAgent) -> None:

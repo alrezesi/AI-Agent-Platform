@@ -1,12 +1,12 @@
 
 # Unit tests for core models
 
-import pytest
 from datetime import datetime
-from src.agent_platform.core.agent import AgentRecord, AgentStatus, AgentCapability
-from src.agent_platform.core.task import Task, TaskPriority, TaskStatus
+
+from src.agent_platform.core.agent import AgentCapability, AgentRecord, AgentStatus
 from src.agent_platform.core.message import Message, MessageType
-from src.agent_platform.core.tenant import Tenant, TenantStatus, TenantQuota
+from src.agent_platform.core.task import Task, TaskPriority, TaskStatus
+from src.agent_platform.core.tenant import Tenant, TenantQuota, TenantStatus
 
 
 def test_agent_record_creation():

@@ -1,15 +1,14 @@
 # src/agent_platform/plugins/manager.py
 # Plugin manager for loading, unloading, and managing plugins
 
-import asyncio
 import logging
-from typing import Dict, List, Type, Optional, Any
 from pathlib import Path
+from typing import Any
 
 from .base import Plugin, PluginContext
-from .hooks import HookRegistry, HookPoint
 from .discovery import discover_plugins
 from .exceptions import PluginLoadError, PluginNotFoundError, PluginUnloadError
+from .hooks import HookPoint, HookRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -20,13 +19,13 @@ class PluginManager:
     Handles loading, unloading, enabling, disabling, and hook execution.
     """
 
-    def __init__(self, plugin_dir: Optional[Path] = None):
+    def __init__(self, plugin_dir: Path | None = None):
         self.plugin_dir = plugin_dir
-        self._plugins: Dict[str, Plugin] = {}  # plugin_id -> Plugin instance
+        self._plugins: dict[str, Plugin] = {}  # plugin_id -> Plugin instance
         self._hook_registry = HookRegistry()
         self._loaded = False
 
-    async def load_all(self, context: Optional[PluginContext] = None) -> None:
+    async def load_all(self, context: PluginContext | None = None) -> None:
         """
         Discover and load all plugins from the plugin directory.
         """
@@ -56,7 +55,7 @@ class PluginManager:
     async def load_plugin(
         self,
         plugin: Plugin,
-        context: Optional[PluginContext] = None,
+        context: PluginContext | None = None,
     ) -> None:
         """
         Load a specific plugin instance.
@@ -105,11 +104,11 @@ class PluginManager:
         self._loaded = False
         logger.info("All plugins unloaded")
 
-    def get_plugin(self, plugin_id: str) -> Optional[Plugin]:
+    def get_plugin(self, plugin_id: str) -> Plugin | None:
         """Get a loaded plugin instance by ID."""
         return self._plugins.get(plugin_id)
 
-    def list_plugins(self) -> List[str]:
+    def list_plugins(self) -> list[str]:
         """List IDs of all loaded plugins."""
         return list(self._plugins.keys())
 
@@ -131,13 +130,13 @@ class PluginManager:
         hook_point: HookPoint,
         *args,
         **kwargs,
-    ) -> List[Any]:
+    ) -> list[Any]:
         """
         Execute all handlers for a hook point.
         """
         return await self._hook_registry.execute(hook_point, *args, **kwargs)
 
-    async def trigger_event(self, event_type: str, data: Dict[str, Any]) -> None:
+    async def trigger_event(self, event_type: str, data: dict[str, Any]) -> None:
         """
         Trigger an event on all loaded plugins that implement on_event.
         """

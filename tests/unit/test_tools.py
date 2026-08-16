@@ -1,18 +1,17 @@
 
 # Unit tests for tool calling system
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock
 
-from src.agent_platform.tools.base import Tool, ToolParameter, ToolSchema
-from src.agent_platform.tools.registry import ToolRegistry
-from src.agent_platform.tools.executor import ToolExecutor
+import pytest
+
+from src.agent_platform.tools.base import Tool, ToolParameter
+from src.agent_platform.tools.examples.echo_tool import EchoTool
 from src.agent_platform.tools.exceptions import (
     ToolNotFoundError,
     ToolValidationError,
-    ToolExecutionError,
 )
-from src.agent_platform.tools.examples.echo_tool import EchoTool
+from src.agent_platform.tools.executor import ToolExecutor
+from src.agent_platform.tools.registry import ToolRegistry
 
 
 class DummyTool(Tool):

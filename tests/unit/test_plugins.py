@@ -1,15 +1,14 @@
 
 # Unit tests for plugin system
 
+
 import pytest
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.agent_platform.plugins.base import Plugin, PluginContext
-from src.agent_platform.plugins.exceptions import PluginLoadError, PluginNotFoundError
-from src.agent_platform.plugins.hooks import HookRegistry, HookPoint
-from src.agent_platform.plugins.manager import PluginManager
 from src.agent_platform.plugins.discovery import discover_plugins, load_plugin_from_path
+from src.agent_platform.plugins.exceptions import PluginNotFoundError
+from src.agent_platform.plugins.hooks import HookPoint, HookRegistry
+from src.agent_platform.plugins.manager import PluginManager
 
 
 class DummyPlugin(Plugin):
@@ -117,7 +116,6 @@ class MyPlugin(Plugin):
     async def on_load(self, context): pass
     async def on_unload(self): pass
 """)
-    from src.agent_platform.plugins.discovery import discover_plugins
     classes = discover_plugins(plugin_dir)
     assert len(classes) == 1
     assert classes[0].__name__ == "MyPlugin"
@@ -126,7 +124,6 @@ class MyPlugin(Plugin):
 def test_discover_plugins_empty_dir(tmp_path):
     plugin_dir = tmp_path / "empty_plugins"
     plugin_dir.mkdir()
-    from src.agent_platform.plugins.discovery import discover_plugins
     classes = discover_plugins(plugin_dir)
     assert len(classes) == 0
 
@@ -139,7 +136,6 @@ class MyPlugin(Plugin):
     async def on_load(self, context): pass
     async def on_unload(self): pass
 """)
-    from src.agent_platform.plugins.discovery import load_plugin_from_path
     cls = load_plugin_from_path(plugin_file)
     assert cls is not None
     assert cls.__name__ == "MyPlugin"

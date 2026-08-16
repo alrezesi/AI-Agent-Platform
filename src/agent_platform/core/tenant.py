@@ -1,15 +1,16 @@
 
 # Core tenant model
 
-from enum import Enum
-from typing import Optional, Dict, Any
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
+
 from pydantic import BaseModel, Field
-from datetime import datetime, timezone
 
 from src.agent_platform.security import api_key_record_matches
 
 
-class TenantStatus(str, Enum):
+class TenantStatus(StrEnum):
     """Status of a tenant."""
     ACTIVE = "active"
     SUSPENDED = "suspended"
@@ -32,14 +33,14 @@ class Tenant(BaseModel):
     """
     tenant_id: str = Field(..., description="Unique tenant identifier")
     name: str = Field(..., description="Tenant name")
-    description: Optional[str] = Field(None, description="Tenant description")
+    description: str | None = Field(None, description="Tenant description")
     status: TenantStatus = Field(TenantStatus.ACTIVE, description="Tenant status")
     quota: TenantQuota = Field(default_factory=TenantQuota, description="Resource quotas")
-    config: Dict[str, Any] = Field(default_factory=dict, description="Tenant-specific configuration")
+    config: dict[str, Any] = Field(default_factory=dict, description="Tenant-specific configuration")
     api_keys: list = Field(default_factory=list, description="API keys for authentication")
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def is_active(self) -> bool:
         """Check if tenant is active."""

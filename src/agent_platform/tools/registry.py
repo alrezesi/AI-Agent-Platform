@@ -2,7 +2,6 @@
 # ToolRegistry for registering and discovering tools
 
 import logging
-from typing import Dict, List, Optional
 
 from .base import Tool
 from .exceptions import ToolNotFoundError
@@ -17,7 +16,7 @@ class ToolRegistry:
     """
 
     def __init__(self):
-        self._tools: Dict[str, Tool] = {}
+        self._tools: dict[str, Tool] = {}
 
     def register(self, tool: Tool) -> None:
         """
@@ -38,7 +37,7 @@ class ToolRegistry:
             return True
         return False
 
-    def get_tool(self, tool_name: str) -> Optional[Tool]:
+    def get_tool(self, tool_name: str) -> Tool | None:
         """Retrieve a tool by name."""
         return self._tools.get(tool_name)
 
@@ -51,11 +50,11 @@ class ToolRegistry:
             raise ToolNotFoundError(f"Tool '{tool_name}' not found")
         return tool
 
-    def list_tools(self) -> List[str]:
+    def list_tools(self) -> list[str]:
         """List all registered tool names."""
         return list(self._tools.keys())
 
-    def get_all_tools(self) -> List[Tool]:
+    def get_all_tools(self) -> list[Tool]:
         """Get all registered tools."""
         return list(self._tools.values())
 

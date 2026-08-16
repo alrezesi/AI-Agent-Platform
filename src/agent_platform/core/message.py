@@ -1,14 +1,15 @@
 ﻿
 # Message models for inter-agent communication
 
-from enum import Enum
-from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field
-from datetime import datetime, timezone
 import uuid
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
-class MessageType(str, Enum):
+class MessageType(StrEnum):
     """Type of message indicating its purpose."""
     REQUEST = "request"          # Request-response pattern
     RESPONSE = "response"        # Response to a request
@@ -17,7 +18,9 @@ class MessageType(str, Enum):
     HEARTBEAT = "heartbeat"      # Agent heartbeat signal
     ERROR = "error"              # Error message
     BROADCAST = "broadcast"      # Broadcast to all age
-class MessagePriority(str, Enum):
+
+
+class MessagePriority(StrEnum):
     """Priority lor message delivery."""
     LOW = "low"
     MEDIUM = "medium"
@@ -25,7 +28,7 @@ class MessagePriority(str, Enum):
     CRITICAL = "critical"
 
 
-class MessageStatus(str, Enum):
+class MessageStatus(StrEnum):
     """Status of a message in the delivery process."""
     PENDING = "pending"          # Queued for delivery
     DELIVERED = "delivered"      # Successfully delivered
@@ -44,25 +47,25 @@ class Message(BaseModel):
         default_factory=lambda: f"msg-{uuid.uuid4().hex[:12]}",
         description="Unique message ID"
     )
-    correlation_id: Optional[str] = Field(
+    correlation_id: str | None = Field(
         None,
         description="Correlation ID for request-response matching"
     )
 
     # --- Routing ---
     from_agent: str = Field(..., description="Sender agent ID")
-    to_agent: Optional[str] = Field(
+    to_agent: str | None = Field(
         None,
         description="Target agent ID (None for broadcast)"
     )
-    topic: Optional[str] = Field(
+    topic: str | None = Field(
         None,
         description="Topic for pub/sub routing"
     )
 
     # --- Content ---
     type: MessageType = Field(..., description="Message type")
-    content: Dict[str, Any] = Field(
+    content: dict[str, Any] = Field(
         default_factory=dict,
         description="Payload content"
     )
@@ -73,14 +76,14 @@ class Message(BaseModel):
 
     # --- Metadata ---
     timestamp: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         description="Creation timestamp"
     )
-    ttl_seconds: Optional[int] = Field(
+    ttl_seconds: int | None = Field(
         300,
         description="Time-to-live in seconds (None = no expiry)"
     )
-    tenant_id: Optional[str] = Field(
+    tenant_id: str | None = Field(
         None,
         description="Tenant ID for multi-tenancy"
     )
@@ -103,14 +106,14 @@ class Message(BaseModel):
         """Check if the message TTL has expired."""
         if self.ttl_seconds is None:
             return False
-        age = (datetime.now(timezone.utc) - self.timestamp).total_seconds()
+        age = (datetime.now(UTC) - self.timestamp).total_seconds()
         return age > self.ttl_seconds
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return self.model_dump(mode='json')
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Message':
+    def from_dict(cls, data: dict[str, Any]) -> 'Message':
         """Create a Message from a dictionary."""
         return cls.model_validate(data)

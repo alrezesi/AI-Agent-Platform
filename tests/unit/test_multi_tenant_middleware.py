@@ -3,10 +3,10 @@
 
 import pytest
 from fastapi import FastAPI, Request
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
 
-from src.agent_platform.multi_tenant.middleware import TenantMiddleware
 from src.agent_platform.multi_tenant.manager import TenantManager
+from src.agent_platform.multi_tenant.middleware import TenantMiddleware
 
 
 @pytest.fixture

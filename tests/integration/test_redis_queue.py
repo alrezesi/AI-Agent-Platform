@@ -1,14 +1,14 @@
 
 # Integration tests for Redis task queue (requires Redis running via Docker)
 
-import pytest
 import asyncio
-import json
+
+import pytest
 import pytest_asyncio
 from redis.asyncio import Redis
 
-from src.agent_platform.scheduler.redis_queue import RedisTaskQueue
 from src.agent_platform.core.task import Task, TaskPriority, TaskStatus
+from src.agent_platform.scheduler.redis_queue import RedisTaskQueue
 
 
 @pytest_asyncio.fixture

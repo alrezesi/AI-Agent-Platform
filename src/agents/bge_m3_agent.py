@@ -1,11 +1,11 @@
 
 # BGE-M3 embedding agent
 
-import os
 import logging
+import os
 from typing import Any
-from pathlib import Path
-from src.agent_platform.core.agent import BaseAgent, AgentRuntimeState
+
+from src.agent_platform.core.agent import AgentRuntimeState, BaseAgent
 from src.agent_platform.core.task import Task
 
 logger = logging.getLogger(__name__)

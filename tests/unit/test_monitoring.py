@@ -1,14 +1,13 @@
 
 # Unit tests for monitoring components
 
-import pytest
-import asyncio
-import time
 
-from src.agent_platform.monitoring.metrics import MetricRegistry, MetricsCollector
-from src.agent_platform.monitoring.tracing import Tracer, TraceSpan
-from src.agent_platform.monitoring.logging import LogManager, LogLevel
+import pytest
+
 from src.agent_platform.monitoring.dashboard import DashboardAPI
+from src.agent_platform.monitoring.logging import LogLevel, LogManager
+from src.agent_platform.monitoring.metrics import MetricRegistry, MetricsCollector
+from src.agent_platform.monitoring.tracing import Tracer
 
 
 @pytest.mark.asyncio

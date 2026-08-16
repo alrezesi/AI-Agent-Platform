@@ -3,15 +3,15 @@
 
 import asyncio
 import logging
-from typing import List, Optional, Dict, Any
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
-from .node import NodeInfo, NodeStatus
-from .registry import DistributedRegistry
-from .queue import DistributedTaskQueue
-from .lock import DistributedLock
-from .worker import WorkerNode, WorkerConfig
 from ..registry.in_memory import InMemoryAgentRegistry
+from .lock import DistributedLock
+from .node import NodeInfo, NodeStatus
+from .queue import DistributedTaskQueue
+from .registry import DistributedRegistry
+from .worker import WorkerConfig, WorkerNode
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +31,9 @@ class DistributedOrchestrator:
         self.registry = registry
         self.queue = queue
         self.redis = redis_client
-        self._nodes: Dict[str, WorkerNode] = {}
+        self._nodes: dict[str, WorkerNode] = {}
         self._running = False
-        self._health_check_task: Optional[asyncio.Task] = None
+        self._health_check_task: asyncio.Task | None = None
 
     async def start(self) -> None:
         """Start the orchestrator."""
@@ -57,8 +57,8 @@ class DistributedOrchestrator:
     async def add_node(
         self,
         node_info: NodeInfo,
-        config: Optional[WorkerConfig] = None,
-        agent_registry: Optional[Any] = None,
+        config: WorkerConfig | None = None,
+        agent_registry: Any | None = None,
     ) -> str:
         """
         Add a worker node to the cluster.
@@ -95,7 +95,7 @@ class DistributedOrchestrator:
         logger.info(f"Node {node_id} removed from cluster")
         return True
 
-    async def get_active_nodes(self) -> List[Dict[str, Any]]:
+    async def get_active_nodes(self) -> list[dict[str, Any]]:
         """Get all active nodes."""
         return await self.registry.get_active_nodes()
 
@@ -116,7 +116,7 @@ class DistributedOrchestrator:
                     last_heartbeat_str = node_data.get('last_heartbeat')
                     if last_heartbeat_str:
                         last_heartbeat = datetime.fromisoformat(last_heartbeat_str)
-                        age = (datetime.now(timezone.utc) - last_heartbeat).total_seconds()
+                        age = (datetime.now(UTC) - last_heartbeat).total_seconds()
                         if age > 60:  # More than 60 seconds
                             logger.warning(f"Node {node_id} has stale heartbeat, marking as offline")
                             node_data['status'] = NodeStatus.OFFLINE.value

@@ -1,13 +1,14 @@
 
 # Handover protocol models for A2A communication
 
-from enum import Enum
-from typing import Optional, Dict, Any, List
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
+
 from pydantic import BaseModel, Field
-from datetime import datetime, timezone
 
 
-class HandoverStatus(str, Enum):
+class HandoverStatus(StrEnum):
     """Status of a handover request."""
     PENDING = "pending"
     ACCEPTED = "accepted"
@@ -16,7 +17,7 @@ class HandoverStatus(str, Enum):
     FAILED = "failed"
 
 
-class A2AMessageType(str, Enum):
+class A2AMessageType(StrEnum):
     """Types of A2A messages."""
     HANDOVER_REQUEST = "handover_request"
     HANDOVER_RESPONSE = "handover_response"
@@ -36,12 +37,12 @@ class HandoverRequest(BaseModel):
     request_id: str = Field(..., description="Unique request ID")
     from_agent: str = Field(..., description="Agent initiating handover")
     to_agent: str = Field(..., description="Agent receiving handover")
-    task_id: Optional[str] = Field(None, description="Task being handed over")
-    session_id: Optional[str] = Field(None, description="Session/Conversation ID")
-    context: Dict[str, Any] = Field(default_factory=dict)
-    reason: Optional[str] = Field(None, description="Reason for handover")
+    task_id: str | None = Field(None, description="Task being handed over")
+    session_id: str | None = Field(None, description="Session/Conversation ID")
+    context: dict[str, Any] = Field(default_factory=dict)
+    reason: str | None = Field(None, description="Reason for handover")
     priority: int = Field(0, description="Priority level")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     timeout_seconds: int = 30
 
 
@@ -52,9 +53,9 @@ class HandoverResponse(BaseModel):
     request_id: str = Field(..., description="Request being responded to")
     from_agent: str = Field(..., description="Agent responding")
     status: HandoverStatus = Field(..., description="Response status")
-    message: Optional[str] = Field(None, description="Optional message")
-    accepted_context: Optional[Dict[str, Any]] = Field(None)
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    message: str | None = Field(None, description="Optional message")
+    accepted_context: dict[str, Any] | None = Field(None)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class A2AMessage(BaseModel):
@@ -65,7 +66,7 @@ class A2AMessage(BaseModel):
     from_agent: str = Field(..., description="Sender agent")
     to_agent: str = Field(..., description="Target agent")
     type: A2AMessageType = Field(..., description="Message type")
-    content: Dict[str, Any] = Field(default_factory=dict)
-    correlation_id: Optional[str] = Field(None)
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    tenant_id: Optional[str] = Field(None)
+    content: dict[str, Any] = Field(default_factory=dict)
+    correlation_id: str | None = Field(None)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    tenant_id: str | None = Field(None)

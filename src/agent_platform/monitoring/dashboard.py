@@ -1,14 +1,13 @@
 
 # Dashboard API endpoints for monitoring
 
-import asyncio
 import logging
-from typing import Optional, Dict, Any, List
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
-from .metrics import MetricsCollector, MetricRegistry
-from .tracing import Tracer, TraceSpan
 from .logging import LogManager
+from .metrics import MetricsCollector
+from .tracing import Tracer
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +31,7 @@ class DashboardAPI:
         self.agent_registry = agent_registry
         self.scheduler = scheduler
 
-    async def get_system_status(self) -> Dict[str, Any]:
+    async def get_system_status(self) -> dict[str, Any]:
         """
         Get overall system status.
         """
@@ -49,7 +48,7 @@ class DashboardAPI:
 
         return {
             "status": "healthy",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "uptime_seconds": metrics.get("uptime_seconds", 0),
             "agents": {
                 "total": agent_count,
@@ -62,7 +61,7 @@ class DashboardAPI:
             },
         }
 
-    async def get_agents_status(self) -> List[Dict[str, Any]]:
+    async def get_agents_status(self) -> list[dict[str, Any]]:
         """
         Get status of all agents.
         """
@@ -80,7 +79,7 @@ class DashboardAPI:
             for a in agents
         ]
 
-    async def get_task_stats(self) -> Dict[str, Any]:
+    async def get_task_stats(self) -> dict[str, Any]:
         """
         Get task statistics.
         """
@@ -102,13 +101,13 @@ class DashboardAPI:
             },
         }
 
-    async def get_metrics_data(self) -> Dict[str, Any]:
+    async def get_metrics_data(self) -> dict[str, Any]:
         """
         Get all metrics data.
         """
         return await self.metrics.get_system_metrics()
 
-    async def get_traces(self, trace_id: Optional[str] = None) -> Dict[str, Any]:
+    async def get_traces(self, trace_id: str | None = None) -> dict[str, Any]:
         """
         Get traces.
         """
@@ -122,10 +121,10 @@ class DashboardAPI:
 
     async def get_logs(
         self,
-        level: Optional[str] = None,
+        level: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get recent logs.
         """

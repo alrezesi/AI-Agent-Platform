@@ -1,16 +1,12 @@
 
 # Checkpoint manager for saving and restoring state
 
-import json
-import asyncio
 import logging
 import uuid
-from typing import Optional, Dict, Any, List
-from datetime import datetime, timezone
-from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
-
-from .exceptions import CheckpointError
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +16,10 @@ class Checkpoint:
     """A checkpoint representing saved state."""
     checkpoint_id: str
     workflow_id: str
-    step_id: Optional[str] = None
-    state: Dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    step_id: str | None = None
+    state: dict[str, Any] = field(default_factory=dict)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class CheckpointStore(ABC):
@@ -36,11 +32,11 @@ class CheckpointStore(ABC):
         pass
 
     @abstractmethod
-    async def load(self, checkpoint_id: str) -> Optional[Checkpoint]:
+    async def load(self, checkpoint_id: str) -> Checkpoint | None:
         pass
 
     @abstractmethod
-    async def list_checkpoints(self, workflow_id: str) -> List[Checkpoint]:
+    async def list_checkpoints(self, workflow_id: str) -> list[Checkpoint]:
         pass
 
     @abstractmethod
@@ -52,8 +48,8 @@ class InMemoryCheckpointStore(CheckpointStore):
     """In-memory implementation of checkpoint store."""
 
     def __init__(self):
-        self._checkpoints: Dict[str, Checkpoint] = {}
-        self._workflow_map: Dict[str, List[str]] = {}  # workflow_id -> list of checkpoint_ids
+        self._checkpoints: dict[str, Checkpoint] = {}
+        self._workflow_map: dict[str, list[str]] = {}  # workflow_id -> list of checkpoint_ids
 
     async def save(self, checkpoint: Checkpoint) -> None:
         self._checkpoints[checkpoint.checkpoint_id] = checkpoint
@@ -62,10 +58,10 @@ class InMemoryCheckpointStore(CheckpointStore):
         if checkpoint.checkpoint_id not in self._workflow_map[checkpoint.workflow_id]:
             self._workflow_map[checkpoint.workflow_id].append(checkpoint.checkpoint_id)
 
-    async def load(self, checkpoint_id: str) -> Optional[Checkpoint]:
+    async def load(self, checkpoint_id: str) -> Checkpoint | None:
         return self._checkpoints.get(checkpoint_id)
 
-    async def list_checkpoints(self, workflow_id: str) -> List[Checkpoint]:
+    async def list_checkpoints(self, workflow_id: str) -> list[Checkpoint]:
         checkpoint_ids = self._workflow_map.get(workflow_id, [])
         return [self._checkpoints[cid] for cid in checkpoint_ids if cid in self._checkpoints]
 
@@ -93,14 +89,14 @@ class CheckpointManager:
     async def create_checkpoint(
         self,
         workflow_id: str,
-        state: Dict[str, Any],
-        step_id: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        state: dict[str, Any],
+        step_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         """
         Create a new checkpoint.
         """
-        checkpoint_id = f"chk-{workflow_id}-{datetime.now(timezone.utc).timestamp()}-{uuid.uuid4().hex[:8]}"
+        checkpoint_id = f"chk-{workflow_id}-{datetime.now(UTC).timestamp()}-{uuid.uuid4().hex[:8]}"
         checkpoint = Checkpoint(
             checkpoint_id=checkpoint_id,
             workflow_id=workflow_id,
@@ -112,7 +108,7 @@ class CheckpointManager:
         logger.info(f"Checkpoint {checkpoint_id} saved for workflow {workflow_id}")
         return checkpoint_id
 
-    async def restore_checkpoint(self, checkpoint_id: str) -> Optional[Checkpoint]:
+    async def restore_checkpoint(self, checkpoint_id: str) -> Checkpoint | None:
         """
         Restore a checkpoint.
         """
@@ -121,7 +117,7 @@ class CheckpointManager:
             logger.info(f"Checkpoint {checkpoint_id} restored for workflow {checkpoint.workflow_id}")
         return checkpoint
 
-    async def get_latest_checkpoint(self, workflow_id: str) -> Optional[Checkpoint]:
+    async def get_latest_checkpoint(self, workflow_id: str) -> Checkpoint | None:
         """
         Get the most recent checkpoint for a workflow.
         """

@@ -3,11 +3,12 @@
 
 import json
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any
+
 import yaml
 
-from .models import Workflow, WorkflowStep, StepDependency
 from .exceptions import WorkflowDefinitionError
+from .models import StepDependency, Workflow, WorkflowStep
 
 
 class WorkflowParser:
@@ -23,7 +24,7 @@ class WorkflowParser:
         if not file_path.exists():
             raise WorkflowDefinitionError(f"File {file_path} not found")
 
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, encoding='utf-8') as f:
             content = f.read()
             if file_path.suffix.lower() in ['.json']:
                 data = json.loads(content)
@@ -35,7 +36,7 @@ class WorkflowParser:
         return WorkflowParser.parse_dict(data)
 
     @staticmethod
-    def parse_dict(data: Dict[str, Any]) -> Workflow:
+    def parse_dict(data: dict[str, Any]) -> Workflow:
         """
         Parse a workflow from a dictionary.
         """

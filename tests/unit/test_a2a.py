@@ -1,16 +1,15 @@
 
 # Unit tests for A2A communication
 
-import pytest
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from src.agent_platform.a2a.collaboration import ChainCollaboration, ParallelCollaboration
-from src.agent_platform.a2a.context import ConversationContext, ContextSharingManager
+from src.agent_platform.a2a.context import ContextSharingManager, ConversationContext
 from src.agent_platform.a2a.delegation import DelegationManager, DelegationRequest, DelegationResult
-from src.agent_platform.a2a.protocol import HandoverRequest, HandoverResponse, HandoverStatus
 from src.agent_platform.a2a.router import RoutingAgent, RoutingStrategy
-from src.agent_platform.core.agent import AgentRecord, AgentCapability
+from src.agent_platform.core.agent import AgentCapability, AgentRecord
 from src.agent_platform.registry.in_memory import InMemoryAgentRegistry
 
 
@@ -32,7 +31,7 @@ async def test_conversation_context():
 @pytest.mark.asyncio
 async def test_context_sharing():
     manager = ContextSharingManager()
-    context = manager.create_context("session1", {"data": "test"})
+    _context = manager.create_context("session1", {"data": "test"})
     shared = manager.share_context("session1", "agent2")
     assert shared["data"] == {"data": "test"}
 

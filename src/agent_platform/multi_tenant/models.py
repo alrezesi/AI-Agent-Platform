@@ -1,15 +1,16 @@
 # src/agent_platform/multi_tenant/models.py
 # Multi-tenant models: Tenant, TenantStatus, TenantQuota
 
-from enum import Enum
-from typing import Optional, Any
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
+
 from pydantic import BaseModel, Field
-from datetime import datetime, timezone
 
 from src.agent_platform.security import api_key_record_matches
 
 
-class TenantStatus(str, Enum):
+class TenantStatus(StrEnum):
     """Status of a tenant."""
     ACTIVE = "active"
     SUSPENDED = "suspended"
@@ -32,13 +33,13 @@ class Tenant(BaseModel):
     """
     tenant_id: str = Field(..., description="Unique tenant identifier")
     name: str = Field(..., description="Tenant name")
-    description: Optional[str] = Field(None, description="Tenant description")
+    description: str | None = Field(None, description="Tenant description")
     status: TenantStatus = Field(TenantStatus.ACTIVE, description="Tenant status")
     quota: TenantQuota = Field(default_factory=TenantQuota, description="Resource quotas")
     config: dict[str, Any] = Field(default_factory=dict, description="Tenant-specific configuration")
     api_keys: list[dict[str, Any]] = Field(default_factory=list, description="API keys for authentication")
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def is_active(self) -> bool:
@@ -57,4 +58,4 @@ class TenantResourceUsage(BaseModel):
     messages_per_second: float = 0.0
     storage_used_mb: float = 0.0
     active_workflows: int = 0
-    last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_updated: datetime = Field(default_factory=lambda: datetime.now(UTC))

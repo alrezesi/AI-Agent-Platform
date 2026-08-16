@@ -7,14 +7,14 @@ import pytest
 
 from src.agent_platform.core.message import Message, MessageType
 from src.agent_platform.core.task import Task, TaskPriority, TaskStatus
-from src.agent_platform.message_bus.models import RouteRule
 from src.agent_platform.message_bus.exceptions import MessageValidationError
+from src.agent_platform.message_bus.models import RouteRule
 from src.agent_platform.message_bus.redis_bus import RedisMessageBus
 from src.agent_platform.message_bus.validator import MessageValidator
 from src.agent_platform.scheduler.models import TaskFilterOptions
 from src.agent_platform.scheduler.redis_queue import RedisTaskQueue
-from src.agent_platform.workflow.executor import WorkflowExecutor
 from src.agent_platform.workflow.exceptions import WorkflowExecutionError
+from src.agent_platform.workflow.executor import WorkflowExecutor
 from src.agent_platform.workflow.models import (
     StepDependency,
     StepStatus,
@@ -46,7 +46,7 @@ class FakePubSub:
     async def get_message(self, ignore_subscribe_messages=True, timeout=1.0):
         try:
             return await asyncio.wait_for(self._queue.get(), timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return None
 
     async def aclose(self):

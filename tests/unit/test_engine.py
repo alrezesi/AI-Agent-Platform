@@ -2,9 +2,10 @@
 # Unit tests for Agent Engine
 
 import asyncio
+
 import pytest
 
-from src.agent_platform.core.agent import BaseAgent, AgentRuntimeState
+from src.agent_platform.core.agent import AgentRuntimeState, BaseAgent
 from src.agent_platform.core.task import Task, TaskPriority, TaskStatus
 from src.agent_platform.engine.engine import AgentEngine
 from src.agent_platform.registry.in_memory import InMemoryAgentRegistry

@@ -1,14 +1,13 @@
 
 # In-memory task queue using heapq for priority (FIFO on tie)
 
-import heapq
 import asyncio
-from typing import Optional, List, Dict, Tuple
-from datetime import datetime, timezone
+import heapq
+from datetime import UTC, datetime
 
 from src.agent_platform.core.task import Task, TaskStatus
 from src.agent_platform.scheduler.base import BaseTaskQueue
-from src.agent_platform.scheduler.models import TaskFilterOptions, TaskStats, TaskQueueItem
+from src.agent_platform.scheduler.models import TaskFilterOptions, TaskQueueItem, TaskStats
 
 
 class InMemoryTaskQueue(BaseTaskQueue):
@@ -18,8 +17,8 @@ class InMemoryTaskQueue(BaseTaskQueue):
     """
 
     def __init__(self):
-        self._heap: List[Tuple[int, float, str]] = []  # (priority, created_at, task_id)
-        self._tasks: Dict[str, Task] = {}  # task_id -> Task
+        self._heap: list[tuple[int, float, str]] = []  # (priority, created_at, task_id)
+        self._tasks: dict[str, Task] = {}  # task_id -> Task
         self._lock = asyncio.Lock()
 
     def _priority_value(self, task: Task) -> int:
@@ -39,7 +38,7 @@ class InMemoryTaskQueue(BaseTaskQueue):
             )
             heapq.heappush(self._heap, (item.priority, item.created_at, item.task_id))
 
-    async def dequeue(self, worker_id: Optional[str] = None, lease_seconds: Optional[float] = None) -> Optional[Task]:
+    async def dequeue(self, worker_id: str | None = None, lease_seconds: float | None = None) -> Task | None:
         async with self._lock:
             if not self._heap:
                 return None
@@ -47,17 +46,17 @@ class InMemoryTaskQueue(BaseTaskQueue):
             task = self._tasks.get(task_id)
             if task:
                 task.status = TaskStatus.RUNNING
-                task.started_at = datetime.now(timezone.utc)
+                task.started_at = datetime.now(UTC)
             return task
 
-    async def peek(self) -> Optional[Task]:
+    async def peek(self) -> Task | None:
         async with self._lock:
             if not self._heap:
                 return None
             _, _, task_id = self._heap[0]
             return self._tasks.get(task_id)
 
-    async def cancel(self, task_id: str, tenant_id: Optional[str] = None) -> bool:
+    async def cancel(self, task_id: str, tenant_id: str | None = None) -> bool:
         async with self._lock:
             task = self._tasks.get(task_id)
             if not task:
@@ -69,7 +68,7 @@ class InMemoryTaskQueue(BaseTaskQueue):
             task.status = TaskStatus.CANCELLED
             return True
 
-    async def get_task(self, task_id: str, tenant_id: Optional[str] = None) -> Optional[Task]:
+    async def get_task(self, task_id: str, tenant_id: str | None = None) -> Task | None:
         async with self._lock:
             task = self._tasks.get(task_id)
             if task and tenant_id and task.tenant_id != tenant_id:
@@ -78,10 +77,10 @@ class InMemoryTaskQueue(BaseTaskQueue):
 
     async def list_tasks(
         self,
-        filters: Optional[TaskFilterOptions] = None,
+        filters: TaskFilterOptions | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Task]:
+    ) -> list[Task]:
         async with self._lock:
             results = list(self._tasks.values())
             if filters:
@@ -96,7 +95,7 @@ class InMemoryTaskQueue(BaseTaskQueue):
             results.sort(key=lambda t: t.created_at, reverse=True)
             return results[offset:offset + limit]
 
-    async def get_stats(self, tenant_id: Optional[str] = None) -> TaskStats:
+    async def get_stats(self, tenant_id: str | None = None) -> TaskStats:
         async with self._lock:
             tasks = list(self._tasks.values())
             if tenant_id:
@@ -122,6 +121,6 @@ class InMemoryTaskQueue(BaseTaskQueue):
             if task.task_id in self._tasks:
                 self._tasks[task.task_id] = task
 
-    async def reclaim_expired_tasks(self) -> List[str]:
+    async def reclaim_expired_tasks(self) -> list[str]:
         """In-memory queue has no leases; nothing to reclaim."""
         return []

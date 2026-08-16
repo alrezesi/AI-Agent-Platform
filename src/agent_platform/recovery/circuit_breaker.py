@@ -1,9 +1,10 @@
-import time
 import asyncio
 import logging
-from enum import Enum
-from typing import Optional, Callable, Awaitable, Any
+import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from enum import Enum
+from typing import Any
 
 from .exceptions import CircuitOpenError
 
@@ -33,7 +34,7 @@ class CircuitBreaker:
     Circuit breaker that protects a service/function from repeated failures.
     """
 
-    def __init__(self, name: str, config: Optional[CircuitBreakerConfig] = None):
+    def __init__(self, name: str, config: CircuitBreakerConfig | None = None):
         self.name = name
         self.config = config or CircuitBreakerConfig()
         self._state = CircuitState.CLOSED

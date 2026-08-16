@@ -2,10 +2,9 @@
 # Tenant authentication utilities
 
 import secrets
-from typing import Optional, Dict, Any
+from typing import Any
 
 from .manager import TenantManager
-from .exceptions import TenantAuthenticationError
 
 
 class TenantAuthenticator:
@@ -16,7 +15,7 @@ class TenantAuthenticator:
     def __init__(self, tenant_manager: TenantManager):
         self.tenant_manager = tenant_manager
 
-    async def authenticate_api_key(self, api_key: str) -> Optional[str]:
+    async def authenticate_api_key(self, api_key: str) -> str | None:
         """
         Authenticate using API key.
         Returns tenant_id if valid, None otherwise.
@@ -26,7 +25,7 @@ class TenantAuthenticator:
             return tenant.tenant_id
         return None
 
-    async def authenticate_tenant(self, tenant_id: str, api_key: Optional[str] = None) -> bool:
+    async def authenticate_tenant(self, tenant_id: str, api_key: str | None = None) -> bool:
         """
         Authenticate a tenant with optional API key.
         """
@@ -41,7 +40,7 @@ class TenantAuthenticator:
         """Generate a secure API key."""
         return f"tk-{secrets.token_hex(24)}"
 
-    def verify_signature(self, payload: Dict[str, Any], signature: str, secret: str) -> bool:
+    def verify_signature(self, payload: dict[str, Any], signature: str, secret: str) -> bool:
         """
         Verify HMAC signature for webhook/notification authentication.
         """

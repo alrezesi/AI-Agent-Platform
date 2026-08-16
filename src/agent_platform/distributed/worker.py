@@ -2,14 +2,13 @@
 
 import asyncio
 import logging
-from typing import Optional, Callable, Awaitable, Any
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from typing import Any
 
+from ..core.task import Task
+from ..scheduler.worker import TaskWorker
 from .node import Node, NodeInfo
 from .queue import DistributedTaskQueue
-from ..scheduler.worker import TaskWorker
-from ..core.task import Task
-from ..core.agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,7 @@ class WorkerNode(Node):
         info: NodeInfo,
         queue: DistributedTaskQueue,
         agent_registry: Any,  # AgentRegistry for retrieving agents
-        config: Optional[WorkerConfig] = None,
+        config: WorkerConfig | None = None,
     ):
         super().__init__(info)
         self.queue = queue
@@ -41,9 +40,9 @@ class WorkerNode(Node):
         self.config = config or WorkerConfig()
         self._tasks: dict = {}  # task_id -> asyncio.Task
         self._semaphore = asyncio.Semaphore(self.config.max_concurrent_tasks)
-        self._heartbeat_task: Optional[asyncio.Task] = None
-        self._poll_task: Optional[asyncio.Task] = None
-        self._recovery_task: Optional[asyncio.Task] = None
+        self._heartbeat_task: asyncio.Task | None = None
+        self._poll_task: asyncio.Task | None = None
+        self._recovery_task: asyncio.Task | None = None
 
     async def start(self) -> None:
         """Start the worker node."""

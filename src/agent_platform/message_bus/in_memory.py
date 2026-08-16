@@ -3,18 +3,21 @@
 
 import asyncio
 import logging
-from typing import Dict, List, Optional, Set, Any
-from collections import defaultdict
-from datetime import datetime, timezone
 import uuid
+from collections import defaultdict
+from datetime import UTC, datetime
+from typing import Any
 
-from src.agent_platform.core.message import Message, MessageStatus
+from src.agent_platform.core.message import Message
 from src.agent_platform.message_bus.base import BaseMessageBus, MessageHandler
-from src.agent_platform.message_bus.models import (
-    Subscription, SubscriptionType, RouteRule,
-    MessageDeliveryRecord, MessageDeliveryStatus,
-)
 from src.agent_platform.message_bus.exceptions import MessageDeliveryError
+from src.agent_platform.message_bus.models import (
+    MessageDeliveryRecord,
+    MessageDeliveryStatus,
+    RouteRule,
+    Subscription,
+    SubscriptionType,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,27 +30,27 @@ class InMemoryMessageBus(BaseMessageBus):
 
     def __init__(self):
         # agent_id -> asyncio.Queue of messages
-        self._queues: Dict[str, asyncio.Queue] = {}
+        self._queues: dict[str, asyncio.Queue] = {}
         # agent_id -> Subscription objects
-        self._subscriptions: Dict[str, List[Subscription]] = defaultdict(list)
+        self._subscriptions: dict[str, list[Subscription]] = defaultdict(list)
         # agent_id -> handler function
-        self._handlers: Dict[str, MessageHandler] = {}
+        self._handlers: dict[str, MessageHandler] = {}
         # topic -> set of subscription_ids
-        self._topic_subscribers: Dict[str, Set[str]] = defaultdict(set)
+        self._topic_subscribers: dict[str, set[str]] = defaultdict(set)
         # role -> set of agent_ids
-        self._role_members: Dict[str, Set[str]] = defaultdict(set)
+        self._role_members: dict[str, set[str]] = defaultdict(set)
         # routing rules
-        self._route_rules: Dict[str, RouteRule] = {}
+        self._route_rules: dict[str, RouteRule] = {}
         # message_id -> Message (persistent store)
-        self._message_store: Dict[str, Message] = {}
+        self._message_store: dict[str, Message] = {}
         # message_id -> List[MessageDeliveryRecord]
-        self._delivery_records: Dict[str, List[MessageDeliveryRecord]] = defaultdict(list)
+        self._delivery_records: dict[str, list[MessageDeliveryRecord]] = defaultdict(list)
         # subscription_id -> Subscription
-        self._sub_by_id: Dict[str, Subscription] = {}
+        self._sub_by_id: dict[str, Subscription] = {}
 
         self._lock = asyncio.Lock()
         self._running = False
-        self._worker_tasks: List[asyncio.Task] = []
+        self._worker_tasks: list[asyncio.Task] = []
 
     async def start(self) -> None:
         if self._running:
@@ -87,7 +90,7 @@ class InMemoryMessageBus(BaseMessageBus):
             await self._queues[message.to_agent].put(message)
         return message.message_id
 
-    async def broadcast(self, message: Message) -> List[str]:
+    async def broadcast(self, message: Message) -> list[str]:
         delivered = []
         async with self._lock:
             for agent_id in list(self._queues.keys()):
@@ -126,7 +129,7 @@ class InMemoryMessageBus(BaseMessageBus):
 
     # --- Routing ---
 
-    async def route_by_role(self, message: Message) -> List[str]:
+    async def route_by_role(self, message: Message) -> list[str]:
         """Route message to agents based on their roles."""
         recipients = []
         async with self._lock:
@@ -151,7 +154,7 @@ class InMemoryMessageBus(BaseMessageBus):
                         break
         return list(set(recipients))  # deduplicate
 
-    def _match_conditions(self, conditions: Dict[str, Any], message: Message) -> bool:
+    def _match_conditions(self, conditions: dict[str, Any], message: Message) -> bool:
         """Check if message matches the condition dict."""
         for key, expected in conditions.items():
             # Support dot notation: "message.type" -> getattr(message, "type")
@@ -183,9 +186,9 @@ class InMemoryMessageBus(BaseMessageBus):
         self,
         agent_id: str,
         handler: MessageHandler,
-        topics: Optional[List[str]] = None,
-        roles: Optional[List[str]] = None,
-        filter_criteria: Optional[Dict[str, Any]] = None,
+        topics: list[str] | None = None,
+        roles: list[str] | None = None,
+        filter_criteria: dict[str, Any] | None = None,
     ) -> str:
         async with self._lock:
             # Create queue if not exists
@@ -229,7 +232,7 @@ class InMemoryMessageBus(BaseMessageBus):
             logger.info(f"Agent {agent_id} subscribed with ID {sub_id}")
             return sub_id
 
-    async def unsubscribe(self, agent_id: str, subscription_id: Optional[str] = None) -> bool:
+    async def unsubscribe(self, agent_id: str, subscription_id: str | None = None) -> bool:
         async with self._lock:
             if subscription_id:
                 # Remove specific subscription
@@ -264,7 +267,7 @@ class InMemoryMessageBus(BaseMessageBus):
                 logger.info(f"All subscriptions removed for agent {agent_id}")
                 return True
 
-    async def get_subscriptions(self, agent_id: str) -> List[Subscription]:
+    async def get_subscriptions(self, agent_id: str) -> list[Subscription]:
         async with self._lock:
             return self._subscriptions.get(agent_id, [])
 
@@ -284,7 +287,7 @@ class InMemoryMessageBus(BaseMessageBus):
                     await self._update_delivery_status(
                         message.message_id, agent_id, MessageDeliveryStatus.DELIVERED
                     )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
             except asyncio.CancelledError:
                 break
@@ -303,10 +306,10 @@ class InMemoryMessageBus(BaseMessageBus):
 
     async def get_message_history(
         self,
-        agent_id: Optional[str] = None,
+        agent_id: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Message]:
+    ) -> list[Message]:
         async with self._lock:
             if agent_id:
                 # Get messages where this agent is the recipient
@@ -320,7 +323,7 @@ class InMemoryMessageBus(BaseMessageBus):
             msgs.sort(key=lambda m: m.timestamp, reverse=True)
             return msgs[offset:offset + limit]
 
-    async def get_message(self, message_id: str) -> Optional[Message]:
+    async def get_message(self, message_id: str) -> Message | None:
         return self._message_store.get(message_id)
 
     # --- Acknowledgment ---
@@ -334,7 +337,7 @@ class InMemoryMessageBus(BaseMessageBus):
     async def has_processed(self, message_id: str) -> bool:
         return message_id in self._message_store
 
-    async def get_delivery_status(self, message_id: str) -> List[MessageDeliveryRecord]:
+    async def get_delivery_status(self, message_id: str) -> list[MessageDeliveryRecord]:
         return self._delivery_records.get(message_id, [])
 
     # --- Internal Helpers ---
@@ -352,7 +355,7 @@ class InMemoryMessageBus(BaseMessageBus):
         message_id: str,
         agent_id: str,
         status: MessageDeliveryStatus,
-        last_error: Optional[str] = None,
+        last_error: str | None = None,
     ) -> bool:
         async with self._lock:
             records = self._delivery_records.get(message_id, [])
@@ -360,9 +363,9 @@ class InMemoryMessageBus(BaseMessageBus):
                 if record.agent_id == agent_id:
                     record.status = status
                     if status == MessageDeliveryStatus.ACKNOWLEDGED:
-                        record.acknowledged_at = datetime.now(timezone.utc)
+                        record.acknowledged_at = datetime.now(UTC)
                     if status == MessageDeliveryStatus.DELIVERED:
-                        record.delivered_at = datetime.now(timezone.utc)
+                        record.delivered_at = datetime.now(UTC)
                     if last_error:
                         record.last_error = last_error
                     record.attempt_count += 1

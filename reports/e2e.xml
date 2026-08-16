@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="3" time="103.048" timestamp="2026-08-16T12:51:38.393601+03:30" hostname="DESKTOP-17RIP31"><testcase classname="tests.e2e.test_docker_e2e" name="test_docker_e2e_with_real_agents" time="64.406"><failure message="AssertionError: bge-m3 was not registered within 60 seconds&#10;assert False">docker_stack = None
+
+    @pytest.mark.asyncio
+    async def test_docker_e2e_with_real_agents(docker_stack):
+        """
+        Send tasks to real agents (BGE-M3, Gemma) and verify they work.
+        """
+        # Wait for all agents to be registered
+        agents_to_wait = ["bge-m3", "gemma-2b", "echo-agent"]
+        for agent_id in agents_to_wait:
+            print(f"⏳ Waiting for {agent_id} to be registered...")
+            found = await wait_for_agent(agent_id, timeout=60)
+&gt;           assert found, f"{agent_id} was not registered within 60 seconds"
+E           AssertionError: bge-m3 was not registered within 60 seconds
+E           assert False
+
+tests\e2e\test_docker_e2e.py:144: AssertionError</failure></testcase><testcase classname="tests.e2e.test_real_agents_e2e" name="test_real_bge_m3_agent" time="29.102"><failure message="AssertionError: Failed to submit task: Internal Server Error&#10;assert 500 == 200&#10; +  where 500 = &lt;Response [500]&gt;.status_code">docker_stack = None
+
+    def test_real_bge_m3_agent(docker_stack):
+        """Test real BGE-M3 agent."""
+        assert wait_for_api_ready(), "API service did not become ready in time."
+        test_text = "This is a test sentence for embedding generation."
+        response = requests.post(
+            f"{API_BASE_URL}/tenants/",
+            json={"name": "E2E Tenant", "description": "E2E test tenant"},
+            timeout=10,
+        )
+        response.raise_for_status()
+        tenant_id = response.json()["tenant_id"]
+        headers = {"X-Tenant-ID": tenant_id}
+&gt;       result = submit_task_and_wait(agent_name="bge-m3", payload={"text": test_text}, headers=headers)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\e2e\test_real_agents_e2e.py:98: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+agent_name = 'bge-m3', payload = {'text': 'This is a test sentence for embedding generation.'}, headers = {'X-Tenant-ID': 'tenant-3f6ced7b'}
+
+    def submit_task_and_wait(agent_name: str, payload: Dict[str, Any], headers: Dict[str, str]) -&gt; Dict[str, Any]:
+        """Submit a task with tenant auth and poll until completion."""
+        task_data = {"agent_id": agent_name, "task_type": agent_name, "payload": payload}
+        response = requests.post(TASKS_ENDPOINT, json=task_data, headers=headers)
+&gt;       assert response.status_code == 200, f"Failed to submit task: {response.text}"
+E       AssertionError: Failed to submit task: Internal Server Error
+E       assert 500 == 200
+E        +  where 500 = &lt;Response [500]&gt;.status_code
+
+tests\e2e\test_real_agents_e2e.py:63: AssertionError</failure></testcase><testcase classname="tests.e2e.test_real_agents_e2e" name="test_real_gemma_agent" time="5.511"><failure message="AssertionError: Failed to submit task: Internal Server Error&#10;assert 500 == 200&#10; +  where 500 = &lt;Response [500]&gt;.status_code">docker_stack = None, tenant_auth = {'X-Tenant-ID': 'tenant-25ba2387'}
+
+    def test_real_gemma_agent(docker_stack, tenant_auth):
+        """Test real Gemma 2B agent."""
+        assert wait_for_api_ready(), "API service did not become ready in time."
+        test_prompt = "What is the capital of France? Answer in one word."
+&gt;       result = submit_task_and_wait(
+            agent_name="gemma-2b",
+            payload={"prompt": test_prompt, "max_tokens": 10},
+            headers=tenant_auth,
+        )
+
+tests\e2e\test_real_agents_e2e.py:112: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+agent_name = 'gemma-2b', payload = {'prompt': 'What is the capital of France? Answer in one word.', 'max_tokens': 10}, headers = {'X-Tenant-ID': 'tenant-25ba2387'}
+
+    def submit_task_and_wait(agent_name: str, payload: Dict[str, Any], headers: Dict[str, str]) -&gt; Dict[str, Any]:
+        """Submit a task with tenant auth and poll until completion."""
+        task_data = {"agent_id": agent_name, "task_type": agent_name, "payload": payload}
+        response = requests.post(TASKS_ENDPOINT, json=task_data, headers=headers)
+&gt;       assert response.status_code == 200, f"Failed to submit task: {response.text}"
+E       AssertionError: Failed to submit task: Internal Server Error
+E       assert 500 == 200
+E        +  where 500 = &lt;Response [500]&gt;.status_code
+
+tests\e2e\test_real_agents_e2e.py:63: AssertionError</failure></testcase></testsuite></testsuites>

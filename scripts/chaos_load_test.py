@@ -6,13 +6,12 @@ import json
 import statistics
 import subprocess
 import time
-from dataclasses import dataclass, asdict
-from datetime import datetime, timezone
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
 from redis.asyncio import Redis
-
 
 API_URL = "http://localhost:8000"
 REDIS_URL = "redis://localhost:6379/1"
@@ -90,7 +89,7 @@ def _docker_stats() -> tuple[dict, dict]:
     return cpu, memory
 
 
-async def _submit_and_wait(client: httpx.AsyncClient, task_id: str) -> tuple[float, int]:
+async def _submit_and_wait(client: httpx.AsyncClient, task_id: str, headers: dict[str, str]) -> tuple[float, int]:
     started = time.perf_counter()
     response = await client.post(
         "/tasks/",
@@ -102,6 +101,7 @@ async def _submit_and_wait(client: httpx.AsyncClient, task_id: str) -> tuple[flo
             "timeout_seconds": 30,
             "max_retries": 1,
         },
+        headers=headers,
     )
     response.raise_for_status()
 
@@ -117,6 +117,16 @@ async def _submit_and_wait(client: httpx.AsyncClient, task_id: str) -> tuple[flo
     return elapsed, int(body.get("retry_count", 0))
 
 
+async def _get_auth_headers(client: httpx.AsyncClient) -> dict[str, str]:
+    tenant_resp = await client.post(
+        "/tenants/",
+        json={"name": "Load Test Tenant", "description": "Synthetic load test tenant"},
+    )
+    tenant_resp.raise_for_status()
+    tenant_id = tenant_resp.json()["tenant_id"]
+    return {"X-Tenant-ID": tenant_id}
+
+
 async def run_load(total_tasks: int, concurrency: int) -> LoadMetrics:
     sem = asyncio.Semaphore(concurrency)
     durations: list[float] = []
@@ -124,13 +134,23 @@ async def run_load(total_tasks: int, concurrency: int) -> LoadMetrics:
     errors = 0
 
     async with httpx.AsyncClient(base_url=API_URL, timeout=60.0, trust_env=False) as client:
+        try:
+            health = await client.get("/health")
+            health.raise_for_status()
+        except Exception as exc:
+            raise RuntimeError(
+                "API is not reachable at http://localhost:8000. "
+                "Start the Docker stack first with: docker compose up -d"
+            ) from exc
+
+        headers = await _get_auth_headers(client)
         redis = Redis.from_url(REDIS_URL, decode_responses=True)
 
         async def worker(index: int) -> None:
             nonlocal retries, errors
             async with sem:
                 try:
-                    duration, retry_count = await _submit_and_wait(client, f"load-{index:05d}")
+                    duration, retry_count = await _submit_and_wait(client, f"load-{index:05d}", headers)
                     durations.append(duration)
                     retries += retry_count
                 except Exception:
@@ -170,11 +190,12 @@ def main() -> int:
 
     metrics = asyncio.run(run_load(args.tasks, args.concurrency))
     payload = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "tasks": args.tasks,
         "concurrency": args.concurrency,
         "metrics": asdict(metrics),
     }
+    args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(json.dumps(payload, indent=2))
     return 0

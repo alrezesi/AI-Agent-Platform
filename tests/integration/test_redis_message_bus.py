@@ -1,13 +1,14 @@
 # tests/integration/test_redis_message_bus.py
 # Integration tests for Redis message bus (requires Docker with Redis running)
 
-import pytest
 import asyncio
+
+import pytest
 import pytest_asyncio
 from redis.asyncio import Redis
 
-from src.agent_platform.message_bus.redis_bus import RedisMessageBus
 from src.agent_platform.core.message import Message, MessageType
+from src.agent_platform.message_bus.redis_bus import RedisMessageBus
 
 
 @pytest_asyncio.fixture

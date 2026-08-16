@@ -4,16 +4,17 @@ import asyncio
 import logging
 import secrets
 import uuid
-from datetime import datetime, timezone
-from typing import Optional, Any
+from datetime import UTC, datetime
+from typing import Any
 
-from .models import Tenant, TenantStatus, TenantQuota
-from .exceptions import TenantNotFoundError
 from src.agent_platform.security import (
     api_key_record_matches,
     hash_api_key,
     stored_api_key_hash,
 )
+
+from .exceptions import TenantNotFoundError
+from .models import Tenant, TenantQuota, TenantStatus
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +37,9 @@ class TenantManager:
     async def create_tenant(
         self,
         name: str,
-        description: Optional[str] = None,
-        quota: Optional[TenantQuota] = None,
-        config: Optional[dict[str, Any]] = None,
+        description: str | None = None,
+        quota: TenantQuota | None = None,
+        config: dict[str, Any] | None = None,
     ) -> Tenant:
         """Create a new tenant."""
         tenant_id = f"tenant-{uuid.uuid4().hex[:8]}"
@@ -54,7 +55,7 @@ class TenantManager:
         logger.info(f"Tenant {tenant_id} ({name}) created")
         return tenant
 
-    async def get_tenant(self, tenant_id: str) -> Optional[Tenant]:
+    async def get_tenant(self, tenant_id: str) -> Tenant | None:
         """Get a tenant by ID."""
         return await self._load_tenant(tenant_id)
 
@@ -71,7 +72,7 @@ class TenantManager:
         for key, value in updates.items():
             if hasattr(tenant, key):
                 setattr(tenant, key, value)
-        tenant.updated_at = datetime.now(timezone.utc)
+        tenant.updated_at = datetime.now(UTC)
         await self._save_tenant(tenant)
         logger.info(f"Tenant {tenant_id} updated")
         return tenant
@@ -81,7 +82,7 @@ class TenantManager:
         tenant = await self.get_tenant_or_raise(tenant_id)
         await self._remove_tenant_keys(tenant)
         tenant.status = TenantStatus.DELETED
-        tenant.updated_at = datetime.now(timezone.utc)
+        tenant.updated_at = datetime.now(UTC)
         await self._save_tenant(tenant)
         logger.info(f"Tenant {tenant_id} deleted (soft)")
         return True
@@ -90,7 +91,7 @@ class TenantManager:
         """Suspend a tenant."""
         tenant = await self.get_tenant_or_raise(tenant_id)
         tenant.status = TenantStatus.SUSPENDED
-        tenant.updated_at = datetime.now(timezone.utc)
+        tenant.updated_at = datetime.now(UTC)
         await self._save_tenant(tenant)
         logger.info(f"Tenant {tenant_id} suspended")
         return True
@@ -99,14 +100,14 @@ class TenantManager:
         """Activate a tenant."""
         tenant = await self.get_tenant_or_raise(tenant_id)
         tenant.status = TenantStatus.ACTIVE
-        tenant.updated_at = datetime.now(timezone.utc)
+        tenant.updated_at = datetime.now(UTC)
         await self._save_tenant(tenant)
         logger.info(f"Tenant {tenant_id} activated")
         return True
 
     async def list_tenants(
         self,
-        status: Optional[TenantStatus] = None,
+        status: TenantStatus | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[Tenant]:
@@ -131,7 +132,7 @@ class TenantManager:
         if tenant.is_active():
             self._index_tenant_keys(tenant)
 
-    async def _load_tenant(self, tenant_id: str) -> Optional[Tenant]:
+    async def _load_tenant(self, tenant_id: str) -> Tenant | None:
         """Load tenant from storage."""
         if not hasattr(self.storage, "_tenants"):
             self.storage._tenants = {}
@@ -139,7 +140,7 @@ class TenantManager:
 
     async def _list_tenants(
         self,
-        status: Optional[TenantStatus] = None,
+        status: TenantStatus | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[Tenant]:
@@ -158,7 +159,7 @@ class TenantManager:
         tenant.api_keys.append(
             {
                 "key_hash": hash_api_key(api_key),
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(UTC).isoformat(),
                 "is_active": True,
             }
         )
@@ -176,7 +177,7 @@ class TenantManager:
             return True
         return False
 
-    async def authenticate_api_key(self, api_key: str) -> Optional[Tenant]:
+    async def authenticate_api_key(self, api_key: str) -> Tenant | None:
         """Resolve a tenant from an API key via the hash index."""
         tenant_id = self._api_key_index.get(hash_api_key(api_key))
         if not tenant_id:
@@ -186,7 +187,7 @@ class TenantManager:
             return tenant
         return None
 
-    async def get_tenant_by_api_key(self, api_key: str) -> Optional[Tenant]:
+    async def get_tenant_by_api_key(self, api_key: str) -> Tenant | None:
         """Public helper used by authentication and middleware."""
         return await self.authenticate_api_key(api_key)
 

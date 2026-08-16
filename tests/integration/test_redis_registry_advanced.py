@@ -2,12 +2,13 @@
 # Advanced integration tests for Redis registry
 
 import asyncio
+
 import pytest
 import pytest_asyncio
 from redis.asyncio import Redis
+
+from src.agent_platform.core.agent import AgentCapability, AgentRecord, AgentStatus
 from src.agent_platform.registry.redis_registry import RedisAgentRegistry
-from src.agent_platform.core.agent import AgentRecord, AgentStatus, AgentCapability
-from datetime import datetime
 
 
 @pytest_asyncio.fixture

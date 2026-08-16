@@ -1,13 +1,13 @@
 
 # Unit tests for Task Scheduler components
 
+
 import pytest
-import asyncio
 
 from src.agent_platform.core.task import TaskPriority, TaskStatus
 from src.agent_platform.scheduler.in_memory import InMemoryTaskQueue
-from src.agent_platform.scheduler.scheduler import TaskScheduler
 from src.agent_platform.scheduler.models import TaskFilterOptions
+from src.agent_platform.scheduler.scheduler import TaskScheduler
 
 
 @pytest.fixture

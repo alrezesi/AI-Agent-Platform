@@ -2,11 +2,10 @@
 # ToolExecutor: executes tools with validation and error handling
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Any
 
-from .base import Tool
+from .exceptions import ToolExecutionError, ToolValidationError
 from .registry import ToolRegistry
-from .exceptions import ToolValidationError, ToolExecutionError
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +21,8 @@ class ToolExecutor:
     async def execute(
         self,
         tool_name: str,
-        params: Dict[str, Any],
-        context: Optional[Dict[str, Any]] = None,
+        params: dict[str, Any],
+        context: dict[str, Any] | None = None,
     ) -> Any:
         """
         Execute a tool by name with the given parameters.

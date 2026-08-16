@@ -1,13 +1,12 @@
 # src/agent_platform/monitoring/metrics.py
 # Metrics collection with Prometheus-style counters, gauges, and histograms
 
-import time
 import asyncio
 import logging
-from typing import Dict, Any, Optional, List
+import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from collections import defaultdict
+from datetime import UTC, datetime
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +16,7 @@ class Metric:
     """Base metric class."""
     name: str
     value: Any
-    labels: Dict[str, str] = field(default_factory=dict)
+    labels: dict[str, str] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
 
 
@@ -36,8 +35,8 @@ class Gauge(Metric):
 @dataclass
 class Histogram(Metric):
     """Distribution of values over time."""
-    buckets: List[float] = field(default_factory=list)
-    counts: Dict[str, int] = field(default_factory=dict)
+    buckets: list[float] = field(default_factory=list)
+    counts: dict[str, int] = field(default_factory=dict)
     sum: float = 0.0
 
 
@@ -48,12 +47,12 @@ class MetricRegistry:
     """
 
     def __init__(self):
-        self._counters: Dict[str, Counter] = {}
-        self._gauges: Dict[str, Gauge] = {}
-        self._histograms: Dict[str, Histogram] = {}
+        self._counters: dict[str, Counter] = {}
+        self._gauges: dict[str, Gauge] = {}
+        self._histograms: dict[str, Histogram] = {}
         self._lock = asyncio.Lock()
 
-    async def counter(self, name: str, labels: Optional[Dict[str, str]] = None) -> Counter:
+    async def counter(self, name: str, labels: dict[str, str] | None = None) -> Counter:
         """Get or create a counter."""
         key = self._key(name, labels)
         async with self._lock:
@@ -61,7 +60,7 @@ class MetricRegistry:
                 self._counters[key] = Counter(name=name, value=0, labels=labels or {})
             return self._counters[key]
 
-    async def gauge(self, name: str, labels: Optional[Dict[str, str]] = None) -> Gauge:
+    async def gauge(self, name: str, labels: dict[str, str] | None = None) -> Gauge:
         """Get or create a gauge."""
         key = self._key(name, labels)
         async with self._lock:
@@ -69,7 +68,7 @@ class MetricRegistry:
                 self._gauges[key] = Gauge(name=name, value=0.0, labels=labels or {})
             return self._gauges[key]
 
-    async def histogram(self, name: str, labels: Optional[Dict[str, str]] = None) -> Histogram:
+    async def histogram(self, name: str, labels: dict[str, str] | None = None) -> Histogram:
         """Get or create a histogram."""
         key = self._key(name, labels)
         async with self._lock:
@@ -82,17 +81,17 @@ class MetricRegistry:
                 )
             return self._histograms[key]
 
-    async def increment_counter(self, name: str, value: int = 1, labels: Optional[Dict[str, str]] = None) -> None:
+    async def increment_counter(self, name: str, value: int = 1, labels: dict[str, str] | None = None) -> None:
         """Increment a counter."""
         counter = await self.counter(name, labels)
         counter.value += value
 
-    async def set_gauge(self, name: str, value: float, labels: Optional[Dict[str, str]] = None) -> None:
+    async def set_gauge(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:
         """Set a gauge value."""
         gauge = await self.gauge(name, labels)
         gauge.value = value
 
-    async def record_histogram(self, name: str, value: float, labels: Optional[Dict[str, str]] = None) -> None:
+    async def record_histogram(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:
         """Record a value in a histogram."""
         hist = await self.histogram(name, labels)
         hist.sum += value
@@ -105,14 +104,14 @@ class MetricRegistry:
         # Infinity bucket
         hist.counts["le_inf"] = hist.counts.get("le_inf", 0) + 1
 
-    def _key(self, name: str, labels: Optional[Dict[str, str]]) -> str:
+    def _key(self, name: str, labels: dict[str, str] | None) -> str:
         """Generate a unique key from name and labels."""
         if not labels:
             return name
         label_str = ",".join(f"{k}={v}" for k, v in sorted(labels.items()))
         return f"{name}:{label_str}"
 
-    def get_all_metrics(self) -> Dict[str, Any]:
+    def get_all_metrics(self) -> dict[str, Any]:
         """Get all metrics as a dictionary."""
         return {
             "counters": {k: v.value for k, v in self._counters.items()},
@@ -198,10 +197,10 @@ class MetricsCollector:
             labels={"tenant": tenant_id}
         )
 
-    async def get_system_metrics(self) -> Dict[str, Any]:
+    async def get_system_metrics(self) -> dict[str, Any]:
         """Get system metrics including uptime."""
         return {
             "uptime_seconds": max(time.perf_counter() - self._start_time, 0.0),
             "metrics": self.registry.get_all_metrics(),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }

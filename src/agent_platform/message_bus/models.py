@@ -1,13 +1,14 @@
 
 # Advanced models for subscriptions, routing, and persistence
 
-from enum import Enum
-from typing import Optional, List, Dict, Any
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
+
 from pydantic import BaseModel, Field
-from datetime import datetime, timezone
 
 
-class SubscriptionType(str, Enum):
+class SubscriptionType(StrEnum):
     """Type of subscription."""
     POINT_TO_POINT = "point_to_point"  # Direct messages to a specific agent
     TOPIC = "topic"                    # Topic-based pub/sub
@@ -20,16 +21,16 @@ class Subscription(BaseModel):
     subscription_id: str = Field(..., description="Unique subscription ID")
     agent_id: str = Field(..., description="Subscribing agent ID")
     type: SubscriptionType = Field(..., description="Type of subscription")
-    topic: Optional[str] = Field(None, description="Topic name (for TOPIC type)")
-    role: Optional[str] = Field(None, description="Role name (for ROLE type)")
-    filter_criteria: Optional[Dict[str, Any]] = Field(
+    topic: str | None = Field(None, description="Topic name (for TOPIC type)")
+    role: str | None = Field(None, description="Role name (for ROLE type)")
+    filter_criteria: dict[str, Any] | None = Field(
         None, description="Optional filter criteria (e.g., {'priority': 'high'})"
     )
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     is_active: bool = Field(True, description="Whether subscription is active")
 
 
-class MessageDeliveryStatus(str, Enum):
+class MessageDeliveryStatus(StrEnum):
     """Status of a message delivery attempt."""
     PENDING = "pending"
     DELIVERED = "delivered"
@@ -43,10 +44,10 @@ class MessageDeliveryRecord(BaseModel):
     message_id: str
     agent_id: str
     status: MessageDeliveryStatus = MessageDeliveryStatus.PENDING
-    delivered_at: Optional[datetime] = None
-    acknowledged_at: Optional[datetime] = None
+    delivered_at: datetime | None = None
+    acknowledged_at: datetime | None = None
     attempt_count: int = 0
-    last_error: Optional[str] = None
+    last_error: str | None = None
 
 
 class RouteRule(BaseModel):
@@ -56,11 +57,11 @@ class RouteRule(BaseModel):
     """
     rule_id: str
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     # Conditions: e.g., {"message.type": "event", "message.priority": "high"}
-    conditions: Dict[str, Any] = Field(default_factory=dict)
+    conditions: dict[str, Any] = Field(default_factory=dict)
     # Target: list of agent roles or specific agent IDs
-    target_roles: List[str] = Field(default_factory=list)
-    target_agents: List[str] = Field(default_factory=list)
+    target_roles: list[str] = Field(default_factory=list)
+    target_agents: list[str] = Field(default_factory=list)
     priority: int = 0  # Higher priority rules are evaluated first
     is_active: bool = True

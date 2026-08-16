@@ -2,9 +2,10 @@
 # Unit tests for message routing
 
 import pytest
-from src.agent_platform.message_bus.routing import RoleRouter
-from src.agent_platform.message_bus.models import RouteRule
+
 from src.agent_platform.core.message import Message, MessageType
+from src.agent_platform.message_bus.models import RouteRule
+from src.agent_platform.message_bus.routing import RoleRouter
 
 
 @pytest.mark.asyncio

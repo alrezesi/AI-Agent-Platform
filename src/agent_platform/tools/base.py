@@ -2,7 +2,8 @@
 # Base Tool class with schema definition
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, List
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -10,10 +11,10 @@ class ToolParameter(BaseModel):
     """Definition of a single parameter for a tool."""
     name: str = Field(..., description="Parameter name")
     type: str = Field(..., description="JSON Schema type (string, number, integer, boolean, array, object)")
-    description: Optional[str] = Field(None, description="Parameter description")
+    description: str | None = Field(None, description="Parameter description")
     required: bool = Field(False, description="Whether this parameter is required")
-    default: Optional[Any] = Field(None, description="Default value if not provided")
-    enum: Optional[List[Any]] = Field(None, description="Allowed values (enum)")
+    default: Any | None = Field(None, description="Default value if not provided")
+    enum: list[Any] | None = Field(None, description="Allowed values (enum)")
 
 
 class ToolSchema(BaseModel):
@@ -22,8 +23,8 @@ class ToolSchema(BaseModel):
     Compatible with OpenAI function calling schema.
     """
     type: str = Field("object", description="Schema type (always object)")
-    properties: Dict[str, ToolParameter] = Field(default_factory=dict)
-    required: List[str] = Field(default_factory=list)
+    properties: dict[str, ToolParameter] = Field(default_factory=dict)
+    required: list[str] = Field(default_factory=list)
 
 
 class Tool(ABC):
@@ -36,7 +37,7 @@ class Tool(ABC):
         self,
         name: str,
         description: str,
-        parameters: Optional[List[ToolParameter]] = None,
+        parameters: list[ToolParameter] | None = None,
     ):
         self.name = name
         self.description = description
@@ -62,7 +63,7 @@ class Tool(ABC):
                 required.append(param.name)
         return ToolSchema(properties=props, required=required)
 
-    def validate_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_params(self, params: dict[str, Any]) -> dict[str, Any]:
         """
         Validate and clean parameters based on the schema.
         Raises ToolValidationError if validation fails.
@@ -106,7 +107,7 @@ class Tool(ABC):
 
         return validated
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert tool to a dictionary for API responses."""
         return {
             "name": self.name,

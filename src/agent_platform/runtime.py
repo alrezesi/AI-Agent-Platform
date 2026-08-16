@@ -6,7 +6,6 @@ import os
 from functools import lru_cache
 
 from redis.asyncio import Redis
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.agent_platform.db import ensure_schema, get_session_factory
 from src.agent_platform.multi_tenant.manager import TenantManager

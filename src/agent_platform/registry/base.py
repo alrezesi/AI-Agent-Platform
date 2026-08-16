@@ -2,7 +2,7 @@
 # Abstract base class for Agent Registry implementations
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Any
+
 from src.agent_platform.core.agent import AgentRecord, AgentStatus
 
 
@@ -21,7 +21,7 @@ class BaseAgentRegistry(ABC):
         pass
 
     @abstractmethod
-    async def unregister(self, agent_id: str, tenant_id: Optional[str] = None) -> bool:
+    async def unregister(self, agent_id: str, tenant_id: str | None = None) -> bool:
         """
         Remove an agent from the registry.
         Returns True if removed, False if not found.
@@ -29,7 +29,7 @@ class BaseAgentRegistry(ABC):
         pass
 
     @abstractmethod
-    async def get_agent(self, agent_id: str, tenant_id: Optional[str] = None) -> Optional[AgentRecord]:
+    async def get_agent(self, agent_id: str, tenant_id: str | None = None) -> AgentRecord | None:
         """
         Retrieve a single agent by its ID.
         Returns None if not found or expired.
@@ -37,7 +37,7 @@ class BaseAgentRegistry(ABC):
         pass
 
     @abstractmethod
-    async def heartbeat(self, agent_id: str, tenant_id: Optional[str] = None) -> bool:
+    async def heartbeat(self, agent_id: str, tenant_id: str | None = None) -> bool:
         """
         Update the last_heartbeat timestamp for an agent.
         Returns True if agent exists and heartbeat was updated.
@@ -47,12 +47,12 @@ class BaseAgentRegistry(ABC):
     @abstractmethod
     async def discover(
         self,
-        capability: Optional[str] = None,
-        status: Optional[AgentStatus] = None,
-        tenant_id: Optional[str] = None,
+        capability: str | None = None,
+        status: AgentStatus | None = None,
+        tenant_id: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[AgentRecord]:
+    ) -> list[AgentRecord]:
         """
         Discover agents matching the given filters.
         - capability: filter by capability name (exact match)
@@ -64,8 +64,8 @@ class BaseAgentRegistry(ABC):
 
     @abstractmethod
     async def list_all(
-        self, tenant_id: Optional[str] = None, limit: int = 100, offset: int = 0
-    ) -> List[AgentRecord]:
+        self, tenant_id: str | None = None, limit: int = 100, offset: int = 0
+    ) -> list[AgentRecord]:
         """
         List all active agents (non-expired) with pagination.
         """

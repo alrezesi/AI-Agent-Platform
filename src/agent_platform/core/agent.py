@@ -1,15 +1,15 @@
 ﻿# src/agent_platform/core/agent.py
 # Core agent model definitions and abstract base class
 
-from enum import Enum
-from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
-from datetime import datetime, timezone
 from abc import ABC, abstractmethod
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
-
-class AgentStatus(str, Enum):
+class AgentStatus(StrEnum):
     ACTIVE = "active"
     INACTIVE = "inactive"
     PAUSED = "paused"
@@ -18,25 +18,25 @@ class AgentStatus(str, Enum):
 
 class AgentCapability(BaseModel):
     name: str
-    description: Optional[str] = None
-    parameters_schema: Optional[Dict[str, Any]] = None
+    description: str | None = None
+    parameters_schema: dict[str, Any] | None = None
 
 
 class AgentRecord(BaseModel):
     agent_id: str = Field(..., description="Unique identifier for the agent")
     name: str = Field(..., description="Human-readable name")
-    description: Optional[str] = None
-    capabilities: List[AgentCapability] = Field(default_factory=list)
+    description: str | None = None
+    capabilities: list[AgentCapability] = Field(default_factory=list)
     status: AgentStatus = AgentStatus.ACTIVE
-    endpoint: Optional[str] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-    registered_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    last_heartbeat: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    tenant_id: Optional[str] = None
+    endpoint: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    registered_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_heartbeat: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    tenant_id: str | None = None
 
 
 # ---- NEW: Agent State Enum for Engine ----
-class AgentRuntimeState(str, Enum):
+class AgentRuntimeState(StrEnum):
     """Runtime state of an agent within the engine."""
     IDLE = "idle"          # Loaded but not processing
     RUNNING = "running"    # Actively processing tasks
@@ -52,7 +52,7 @@ class BaseAgent(ABC):
     Defines the lifecycle and task processing contract.
     """
 
-    def __init__(self, agent_id: str, name: str, tenant_id: Optional[str] = None):
+    def __init__(self, agent_id: str, name: str, tenant_id: str | None = None):
         self.agent_id = agent_id
         self.name = name
         self.tenant_id = tenant_id

@@ -2,9 +2,8 @@
 # Distributed task queue using Redis
 
 import json
-import asyncio
-from typing import Any, Optional, List, Dict, TYPE_CHECKING
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 try:
     from redis.asyncio import Redis
@@ -80,7 +79,7 @@ class DistributedTaskQueue(BaseTaskQueue):
         score = self._priority_score(task)
         await self.redis.zadd(self.QUEUE_KEY, {task.task_id: score})
 
-    async def dequeue(self, worker_id: Optional[str] = None, lease_seconds: Optional[float] = None) -> Optional[Task]:
+    async def dequeue(self, worker_id: str | None = None, lease_seconds: float | None = None) -> Task | None:
         """
         Pop the highest priority task from the queue.
         Uses atomic ZPOPMIN for distributed safety and records a lease.
@@ -98,10 +97,10 @@ class DistributedTaskQueue(BaseTaskQueue):
 
         task = Task.model_validate_json(data)
         task.status = TaskStatus.RUNNING
-        task.started_at = datetime.now(timezone.utc)
+        task.started_at = datetime.now(UTC)
 
         lease_seconds = lease_seconds or float(self.ttl_seconds)
-        deadline = datetime.now(timezone.utc).timestamp() + lease_seconds
+        deadline = datetime.now(UTC).timestamp() + lease_seconds
         await self.redis.zadd(self.PROCESSING_KEY, {task_id: deadline})
 
         # Update stored task
@@ -118,11 +117,11 @@ class DistributedTaskQueue(BaseTaskQueue):
 
         return task
 
-    async def reclaim_expired_tasks(self) -> List[str]:
+    async def reclaim_expired_tasks(self) -> list[str]:
         """Move expired processing tasks back to the pending queue."""
-        now_ts = datetime.now(timezone.utc).timestamp()
+        now_ts = datetime.now(UTC).timestamp()
         expired = await self.redis.zrange(self.PROCESSING_KEY, 0, -1, withscores=True)
-        reclaimed: List[str] = []
+        reclaimed: list[str] = []
         for task_id_bytes, deadline in expired:
             task_id = task_id_bytes.decode("utf-8") if isinstance(task_id_bytes, bytes) else task_id_bytes
             if deadline > now_ts:
@@ -153,7 +152,7 @@ class DistributedTaskQueue(BaseTaskQueue):
             reclaimed.append(task_id)
         return reclaimed
 
-    async def peek(self) -> Optional[Task]:
+    async def peek(self) -> Task | None:
         """Peek at the next task without removing it."""
         result = await self.redis.zrange(self.QUEUE_KEY, 0, 0, withscores=True)
         if not result:
@@ -164,7 +163,7 @@ class DistributedTaskQueue(BaseTaskQueue):
             return None
         return Task.model_validate_json(data)
 
-    async def cancel(self, task_id: str, tenant_id: Optional[str] = None) -> bool:
+    async def cancel(self, task_id: str, tenant_id: str | None = None) -> bool:
         """Cancel a pending task."""
         data = await self.redis.get(self._task_key(task_id))
         if not data:
@@ -185,7 +184,7 @@ class DistributedTaskQueue(BaseTaskQueue):
         )
         return True
 
-    async def get_task(self, task_id: str, tenant_id: Optional[str] = None) -> Optional[Task]:
+    async def get_task(self, task_id: str, tenant_id: str | None = None) -> Task | None:
         """Get a task by ID."""
         data = await self.redis.get(self._task_key(task_id))
         if not data:
@@ -197,10 +196,10 @@ class DistributedTaskQueue(BaseTaskQueue):
 
     async def list_tasks(
         self,
-        filters: Optional[TaskFilterOptions] = None,
+        filters: TaskFilterOptions | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Task]:
+    ) -> list[Task]:
         """List tasks with filtering and pagination."""
         # Scan all task keys (inefficient for large datasets; use indices in production)
         cursor = 0
@@ -231,7 +230,7 @@ class DistributedTaskQueue(BaseTaskQueue):
         tasks.sort(key=lambda t: t.created_at, reverse=True)
         return tasks[offset:offset + limit]
 
-    async def get_stats(self, tenant_id: Optional[str] = None) -> TaskStats:
+    async def get_stats(self, tenant_id: str | None = None) -> TaskStats:
         """Get task statistics."""
         # For distributed queue, we use Redis counters or scan
         # Simplified: scan all tasks

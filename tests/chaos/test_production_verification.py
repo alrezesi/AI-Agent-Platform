@@ -9,11 +9,11 @@ from pathlib import Path
 import httpx
 import pytest
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILE = PROJECT_ROOT / "docker-compose.yml"
 API_URL = os.getenv("PRODUCTION_VERIFY_API_URL", "http://127.0.0.1:8000")
 DOCKER = ["docker", "compose", "-f", str(COMPOSE_FILE)]
+TEST_TENANT_NAME = "Production Verification Tenant"
 
 
 def _run(*args: str) -> None:
@@ -59,6 +59,16 @@ async def _wait_for_task(client: httpx.AsyncClient, task_id: str, timeout: float
     raise TimeoutError(task_id)
 
 
+async def _get_auth_headers(client: httpx.AsyncClient) -> dict[str, str]:
+    tenant_resp = await client.post(
+        "/tenants/",
+        json={"name": TEST_TENANT_NAME, "description": "Chaos verification tenant"},
+    )
+    tenant_resp.raise_for_status()
+    tenant_id = tenant_resp.json()["tenant_id"]
+    return {"X-Tenant-ID": tenant_id}
+
+
 @pytest.fixture(scope="session", autouse=True)
 def production_stack():
     _up()
@@ -70,6 +80,7 @@ def production_stack():
 async def test_worker_failover_to_second_worker():
     async with httpx.AsyncClient(base_url=API_URL, timeout=30.0, trust_env=False) as client:
         await _wait_for_api(client)
+        headers = await _get_auth_headers(client)
         task_id = f"failover-{int(time.time() * 1000)}"
         submit = await client.post(
             "/tasks/",
@@ -81,6 +92,7 @@ async def test_worker_failover_to_second_worker():
                 "timeout_seconds": 20,
                 "max_retries": 0,
             },
+            headers=headers,
         )
         assert submit.status_code == 200, submit.text
         await asyncio.sleep(1.5)
@@ -94,6 +106,7 @@ async def test_worker_failover_to_second_worker():
 async def test_redis_outage_recovers_pending_task():
     async with httpx.AsyncClient(base_url=API_URL, timeout=30.0, trust_env=False) as client:
         await _wait_for_api(client)
+        headers = await _get_auth_headers(client)
         subprocess.run(["docker", "stop", "agent_platform_redis"], check=True, capture_output=True)
         task_id = f"redis-outage-{int(time.time() * 1000)}"
         submit = await client.post(
@@ -106,6 +119,7 @@ async def test_redis_outage_recovers_pending_task():
                 "timeout_seconds": 20,
                 "max_retries": 0,
             },
+            headers=headers,
         )
         assert submit.status_code == 200, submit.text
         subprocess.run(["docker", "start", "agent_platform_redis"], check=True, capture_output=True)
@@ -118,6 +132,7 @@ async def test_redis_outage_recovers_pending_task():
 async def test_duplicate_task_id_executes_once():
     async with httpx.AsyncClient(base_url=API_URL, timeout=30.0, trust_env=False) as client:
         await _wait_for_api(client)
+        headers = await _get_auth_headers(client)
         task_id = f"dedupe-{int(time.time() * 1000)}"
         body = {
             "task_id": task_id,
@@ -127,7 +142,7 @@ async def test_duplicate_task_id_executes_once():
             "timeout_seconds": 20,
             "max_retries": 0,
         }
-        responses = await asyncio.gather(*[client.post("/tasks/", json=body) for _ in range(100)])
+        responses = await asyncio.gather(*[client.post("/tasks/", json=body, headers=headers) for _ in range(100)])
         assert all(resp.status_code == 200 for resp in responses)
         assert len({resp.json()["task_id"] for resp in responses}) == 1
         task = await _wait_for_task(client, task_id, timeout=60)
@@ -140,6 +155,7 @@ async def test_duplicate_task_id_executes_once():
 async def test_duplicate_message_enqueued_multiple_times_executes_once():
     async with httpx.AsyncClient(base_url=API_URL, timeout=30.0, trust_env=False) as client:
         await _wait_for_api(client)
+        headers = await _get_auth_headers(client)
         task_id = f"dup-msg-{int(time.time() * 1000)}"
         body = {
             "task_id": task_id,
@@ -150,7 +166,7 @@ async def test_duplicate_message_enqueued_multiple_times_executes_once():
             "max_retries": 0,
         }
         for _ in range(10):
-            resp = await client.post("/tasks/", json=body)
+            resp = await client.post("/tasks/", json=body, headers=headers)
             assert resp.status_code == 200, resp.text
         task = await _wait_for_task(client, task_id, timeout=60)
         assert task["status"] == "completed"

@@ -1,18 +1,18 @@
 
 # Node representation and management for distributed execution
 
-import uuid
-import socket
 import logging
-from enum import Enum
-from typing import Optional, Dict, Any
-from datetime import datetime, timezone
+import socket
+import uuid
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-class NodeStatus(str, Enum):
+class NodeStatus(StrEnum):
     """Status of a node in the cluster."""
     INITIALIZING = "initializing"
     ACTIVE = "active"
@@ -32,13 +32,13 @@ class NodeInfo:
     ip_address: str
     port: int
     status: NodeStatus = NodeStatus.INITIALIZING
-    capabilities: Dict[str, Any] = field(default_factory=dict)
-    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    last_heartbeat: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    capabilities: dict[str, Any] = field(default_factory=dict)
+    started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    last_heartbeat: datetime = field(default_factory=lambda: datetime.now(UTC))
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def create(cls, port: int, capabilities: Optional[Dict[str, Any]] = None) -> 'NodeInfo':
+    def create(cls, port: int, capabilities: dict[str, Any] | None = None) -> 'NodeInfo':
         """Create a NodeInfo for the current node."""
         hostname = socket.gethostname()
         try:
@@ -68,7 +68,7 @@ class Node:
         """Start the node."""
         self._running = True
         self.info.status = NodeStatus.ACTIVE
-        self.info.last_heartbeat = datetime.now(timezone.utc)
+        self.info.last_heartbeat = datetime.now(UTC)
         logger.info(f"Node {self.info.node_id} started on {self.info.hostname}:{self.info.port}")
 
     async def stop(self) -> None:
@@ -80,7 +80,7 @@ class Node:
     async def heartbeat(self) -> None:
         """Update the heartbeat timestamp."""
         if self._running:
-            self.info.last_heartbeat = datetime.now(timezone.utc)
+            self.info.last_heartbeat = datetime.now(UTC)
 
     async def health_check(self) -> bool:
         """
@@ -91,14 +91,14 @@ class Node:
         if not self._running:
             return False
         # Check if heartbeat is too old (more than 30 seconds)
-        age = (datetime.now(timezone.utc) - self.info.last_heartbeat).total_seconds()
+        age = (datetime.now(UTC) - self.info.last_heartbeat).total_seconds()
         if age > 30:
             self.info.status = NodeStatus.UNHEALTHY
             return False
         self.info.status = NodeStatus.ACTIVE
         return True
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize node info to dictionary."""
         return {
             "node_id": self.info.node_id,

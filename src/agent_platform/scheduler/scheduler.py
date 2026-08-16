@@ -1,10 +1,9 @@
 
 # Main Task Scheduler service orchestrating queue operations
 
-from typing import Optional, List
 from uuid import uuid4
 
-from src.agent_platform.core.task import Task, TaskStatus, TaskPriority
+from src.agent_platform.core.task import Task, TaskPriority, TaskStatus
 from src.agent_platform.scheduler.base import BaseTaskQueue
 from src.agent_platform.scheduler.models import TaskFilterOptions, TaskStats
 
@@ -23,11 +22,11 @@ class TaskScheduler:
         agent_id: str,
         task_type: str,
         payload: dict,
-        task_id: Optional[str] = None,
+        task_id: str | None = None,
         priority: TaskPriority = TaskPriority.MEDIUM,
         timeout_seconds: int = 30,
         max_retries: int = 3,
-        tenant_id: Optional[str] = None,
+        tenant_id: str | None = None,
     ) -> str:
         """
         Submit a new task to the queue.
@@ -51,39 +50,39 @@ class TaskScheduler:
         await self.queue.enqueue(task)
         return task.task_id
 
-    async def cancel_task(self, task_id: str, tenant_id: Optional[str] = None) -> bool:
+    async def cancel_task(self, task_id: str, tenant_id: str | None = None) -> bool:
         """Cancel a pending task."""
         return await self.queue.cancel(task_id, tenant_id)
 
-    async def get_task_status(self, task_id: str, tenant_id: Optional[str] = None) -> Optional[TaskStatus]:
+    async def get_task_status(self, task_id: str, tenant_id: str | None = None) -> TaskStatus | None:
         """Get the status of a task."""
         task = await self.queue.get_task(task_id, tenant_id)
         if task:
             return task.status
         return None
 
-    async def get_task(self, task_id: str, tenant_id: Optional[str] = None) -> Optional[Task]:
+    async def get_task(self, task_id: str, tenant_id: str | None = None) -> Task | None:
         """Get the full task details."""
         return await self.queue.get_task(task_id, tenant_id)
 
     async def list_tasks(
         self,
-        filters: Optional[TaskFilterOptions] = None,
+        filters: TaskFilterOptions | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Task]:
+    ) -> list[Task]:
         """List tasks with filtering and pagination."""
         return await self.queue.list_tasks(filters, limit, offset)
 
-    async def get_stats(self, tenant_id: Optional[str] = None) -> TaskStats:
+    async def get_stats(self, tenant_id: str | None = None) -> TaskStats:
         """Get task statistics."""
         return await self.queue.get_stats(tenant_id)
 
-    async def dequeue_next(self) -> Optional[Task]:
+    async def dequeue_next(self) -> Task | None:
         """Pop the next task for execution (used by workers)."""
         return await self.queue.dequeue()
 
-    async def peek_next(self) -> Optional[Task]:
+    async def peek_next(self) -> Task | None:
         """Look at the next task without removing it."""
         return await self.queue.peek()
 

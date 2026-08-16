@@ -3,9 +3,10 @@
 
 import asyncio
 import json
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock
-from datetime import datetime, timedelta, timezone
 
 from src.agent_platform.core.agent import AgentRecord
 from src.agent_platform.core.task import Task, TaskPriority, TaskStatus
@@ -211,7 +212,7 @@ async def test_distributed_registry_get_active_nodes(mock_redis):
     registry = DistributedRegistry(mock_redis)
     mock_redis.smembers.return_value = {"node1"}
     mock_redis.get.return_value = json.dumps(
-        {"node_id": "node1", "last_heartbeat": datetime.now(timezone.utc).isoformat(), "status": "active"}
+        {"node_id": "node1", "last_heartbeat": datetime.now(UTC).isoformat(), "status": "active"}
     )
     active = await registry.get_active_nodes()
     assert len(active) == 1

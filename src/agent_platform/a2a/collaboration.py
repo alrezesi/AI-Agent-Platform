@@ -1,15 +1,14 @@
 
 # Collaboration patterns for multi-agent systems
 
-from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional, Callable
-from enum import Enum
 import asyncio
 import logging
+from abc import ABC, abstractmethod
+from typing import Any
 
-from .exceptions import CollaborationError
-from .context import ConversationContext, ContextSharingManager
+from .context import ConversationContext
 from .delegation import DelegationManager, DelegationRequest
+from .exceptions import CollaborationError
 from .router import RoutingAgent
 
 logger = logging.getLogger(__name__)
@@ -23,9 +22,9 @@ class CollaborationPattern(ABC):
     @abstractmethod
     async def execute(
         self,
-        request: Dict[str, Any],
+        request: dict[str, Any],
         context: ConversationContext,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Execute the collaboration pattern.
         """
@@ -42,7 +41,7 @@ class ChainCollaboration(CollaborationPattern):
         self,
         router: RoutingAgent,
         delegation_manager: DelegationManager,
-        agent_chain: Optional[List[str]] = None,
+        agent_chain: list[str] | None = None,
     ):
         self.router = router
         self.delegation_manager = delegation_manager
@@ -50,9 +49,9 @@ class ChainCollaboration(CollaborationPattern):
 
     async def execute(
         self,
-        request: Dict[str, Any],
+        request: dict[str, Any],
         context: ConversationContext,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Execute the chain: each agent processes and passes to the next.
         """
@@ -98,7 +97,7 @@ class ChainCollaboration(CollaborationPattern):
 
         return {"final_result": result, "chain": chain}
 
-    async def _build_chain(self, request: Dict[str, Any]) -> List[str]:
+    async def _build_chain(self, request: dict[str, Any]) -> list[str]:
         """Build chain dynamically using routing."""
         required_capabilities = request.get('required_capabilities', [])
         chain = []
@@ -139,9 +138,9 @@ class ParallelCollaboration(CollaborationPattern):
 
     async def execute(
         self,
-        request: Dict[str, Any],
+        request: dict[str, Any],
         context: ConversationContext,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Execute tasks in parallel across multiple agents.
         """
@@ -176,7 +175,7 @@ class ParallelCollaboration(CollaborationPattern):
 
     async def _execute_single_subtask(
         self,
-        subtask: Dict[str, Any],
+        subtask: dict[str, Any],
         context: ConversationContext,
     ) -> Any:
         """Execute a single subtask."""
@@ -231,9 +230,9 @@ class HierarchicalCollaboration(CollaborationPattern):
 
     async def execute(
         self,
-        request: Dict[str, Any],
+        request: dict[str, Any],
         context: ConversationContext,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Execute hierarchical collaboration.
         The master agent orchestrates the work.
@@ -267,9 +266,9 @@ class HierarchicalCollaboration(CollaborationPattern):
 
     async def _select_workers(
         self,
-        request: Dict[str, Any],
+        request: dict[str, Any],
         context: ConversationContext,
-    ) -> List[str]:
+    ) -> list[str]:
         """Select worker agents based on capabilities."""
         required_caps = request.get('required_capabilities', [])
         workers = []
@@ -285,10 +284,10 @@ class HierarchicalCollaboration(CollaborationPattern):
 
     async def _split_task(
         self,
-        request: Dict[str, Any],
-        workers: List[str],
+        request: dict[str, Any],
+        workers: list[str],
         context: ConversationContext,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Split the main task into subtasks for workers."""
         # Simplified: assign one subtask per worker
         subtasks = []
@@ -304,7 +303,7 @@ class HierarchicalCollaboration(CollaborationPattern):
             })
         return subtasks
 
-    async def _aggregate_results(self, results: Dict[str, Any], context: ConversationContext) -> Dict[str, Any]:
+    async def _aggregate_results(self, results: dict[str, Any], context: ConversationContext) -> dict[str, Any]:
         """Aggregate results from workers."""
         # Simplified aggregation
         return {
@@ -330,10 +329,10 @@ class CollaborationOrchestrator:
     async def execute(
         self,
         pattern_type: str,
-        request: Dict[str, Any],
+        request: dict[str, Any],
         context: ConversationContext,
         **kwargs,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Execute a collaboration pattern.
         pattern_type: "chain", "parallel", "hierarchical"

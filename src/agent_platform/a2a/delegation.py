@@ -1,15 +1,16 @@
 
 # Delegation: agent delegates a task to another agent
 
-from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field
-from datetime import datetime, timezone
-import uuid
 import logging
+import uuid
+from datetime import UTC, datetime
+from typing import Any
 
+from pydantic import BaseModel, Field
+
+from .context import ContextSharingManager
 from .exceptions import DelegationError
 from .protocol import A2AMessage, A2AMessageType
-from .context import ConversationContext, ContextSharingManager
 
 logger = logging.getLogger(__name__)
 
@@ -22,12 +23,12 @@ class DelegationRequest(BaseModel):
     from_agent: str
     to_agent: str
     task_type: str
-    task_payload: Dict[str, Any] = Field(default_factory=dict)
-    session_id: Optional[str] = None
-    context_snapshot: Optional[Dict[str, Any]] = None
+    task_payload: dict[str, Any] = Field(default_factory=dict)
+    session_id: str | None = None
+    context_snapshot: dict[str, Any] | None = None
     priority: int = 0
-    deadline: Optional[datetime] = None
-    callback_url: Optional[str] = None
+    deadline: datetime | None = None
+    callback_url: str | None = None
 
 
 class DelegationResult(BaseModel):
@@ -36,11 +37,11 @@ class DelegationResult(BaseModel):
     """
     delegation_id: str
     status: str  # "completed", "failed", "timeout"
-    result: Optional[Any] = None
-    error: Optional[str] = None
+    result: Any | None = None
+    error: str | None = None
     from_agent: str
     to_agent: str
-    completed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    completed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class DelegationManager:
@@ -51,9 +52,9 @@ class DelegationManager:
 
     def __init__(self, context_manager: ContextSharingManager):
         self.context_manager = context_manager
-        self._pending_delegations: Dict[str, DelegationRequest] = {}
-        self._completed_delegations: Dict[str, DelegationResult] = {}
-        self._callbacks: Dict[str, list] = {}
+        self._pending_delegations: dict[str, DelegationRequest] = {}
+        self._completed_delegations: dict[str, DelegationResult] = {}
+        self._callbacks: dict[str, list] = {}
 
     async def delegate(
         self,
@@ -151,7 +152,7 @@ class DelegationManager:
         self._completed_delegations[delegation_id] = delegation_result
 
         # Send response back
-        response = A2AMessage(
+        A2AMessage(
             message_id=f"a2a-{uuid.uuid4().hex[:8]}",
             from_agent=message.to_agent,
             to_agent=message.from_agent,
@@ -167,7 +168,7 @@ class DelegationManager:
 
         return delegation_result
 
-    def handle_delegation_response(self, message: A2AMessage) -> Optional[DelegationResult]:
+    def handle_delegation_response(self, message: A2AMessage) -> DelegationResult | None:
         """
         Handle a delegation response (result from delegated task).
         """
@@ -202,7 +203,7 @@ class DelegationManager:
 
         return delegation_result
 
-    def get_delegation_result(self, delegation_id: str) -> Optional[DelegationResult]:
+    def get_delegation_result(self, delegation_id: str) -> DelegationResult | None:
         """Get the result of a completed delegation."""
         return self._completed_delegations.get(delegation_id)
 

@@ -1,11 +1,12 @@
 
 # Integration tests for API endpoints
 
-import pytest
 import asyncio
+
+import pytest
 from fastapi.testclient import TestClient
 
-from tests.conftest import app, get_test_tenant_manager
+from tests.conftest import get_test_tenant_manager
 
 
 @pytest.fixture

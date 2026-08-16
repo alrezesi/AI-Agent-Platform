@@ -2,8 +2,8 @@
 # Abstract base class for plugins and plugin context
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -13,10 +13,10 @@ class PluginContext:
     Contains configuration, shared state, and references to core services.
     """
     plugin_id: str
-    config: Dict[str, Any] = field(default_factory=dict)
-    shared_state: Dict[str, Any] = field(default_factory=dict)
+    config: dict[str, Any] = field(default_factory=dict)
+    shared_state: dict[str, Any] = field(default_factory=dict)
     # Reference to core services can be added later (e.g., registry, scheduler)
-    services: Optional[Dict[str, Any]] = None
+    services: dict[str, Any] | None = None
 
 
 class Plugin(ABC):
@@ -29,7 +29,7 @@ class Plugin(ABC):
         self.plugin_id = plugin_id
         self.name = name
         self.version = version
-        self.context: Optional[PluginContext] = None
+        self.context: PluginContext | None = None
         self._loaded = False
 
     @abstractmethod
@@ -48,7 +48,7 @@ class Plugin(ABC):
         """
         pass
 
-    async def on_event(self, event_type: str, data: Dict[str, Any]) -> Any:
+    async def on_event(self, event_type: str, data: dict[str, Any]) -> Any:
         """
         Handle arbitrary events. Can be overridden by plugins.
         Default implementation does nothing.

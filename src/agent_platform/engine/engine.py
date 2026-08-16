@@ -3,15 +3,13 @@
 
 import asyncio
 import logging
-from typing import Dict, Optional, List, Type, Any
-from datetime import datetime
 
-from src.agent_platform.core.agent import BaseAgent, AgentRuntimeState
+from src.agent_platform.core.agent import AgentRuntimeState, BaseAgent
+from src.agent_platform.core.task import Task, TaskStatus
 from src.agent_platform.engine.context import AgentContext
 from src.agent_platform.registry.base import BaseAgentRegistry
 from src.agent_platform.scheduler.scheduler import TaskScheduler
 from src.agent_platform.scheduler.worker import TaskWorker  # <-- NEW IMPORT
-from src.agent_platform.core.task import Task, TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -35,16 +33,16 @@ class AgentEngine:
         self.max_concurrent_tasks_per_agent = max_concurrent_tasks_per_agent
 
         # agent_id -> BaseAgent instance
-        self._agents: Dict[str, BaseAgent] = {}
+        self._agents: dict[str, BaseAgent] = {}
         # agent_id -> asyncio.Task for the worker
-        self._workers: Dict[str, asyncio.Task] = {}
+        self._workers: dict[str, asyncio.Task] = {}
         # agent_id -> semaphore for concurrency limit
-        self._semaphores: Dict[str, asyncio.Semaphore] = {}
+        self._semaphores: dict[str, asyncio.Semaphore] = {}
 
         self._running = False
-        self._main_task: Optional[asyncio.Task] = None
+        self._main_task: asyncio.Task | None = None
 
-    async def register_agent(self, agent: BaseAgent, context: Optional[AgentContext] = None) -> None:
+    async def register_agent(self, agent: BaseAgent, context: AgentContext | None = None) -> None:
         """
         Register an agent instance with the engine.
         Initializes the agent and registers it with the registry.
@@ -202,7 +200,6 @@ class AgentEngine:
                     continue
 
                 # Acquire semaphore to respect concurrency limit
-                semaphore = self._semaphores[agent_id]
                 # Create a queue for this agent if not exists
                 if not hasattr(agent, '_task_queue'):
                     agent._task_queue = asyncio.Queue()
@@ -238,7 +235,7 @@ class AgentEngine:
                 # Wait for a task with timeout to allow for cancellation checks
                 try:
                     task = await asyncio.wait_for(queue.get(), timeout=1.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     continue
 
                 # Execute task with concurrency limit
@@ -283,14 +280,14 @@ class AgentEngine:
             self._start_worker(agent_id)
         return True
 
-    async def get_agent_state(self, agent_id: str) -> Optional[AgentRuntimeState]:
+    async def get_agent_state(self, agent_id: str) -> AgentRuntimeState | None:
         """Get the runtime state of an agent."""
         agent = self._agents.get(agent_id)
         if not agent:
             return None
         return agent.state
 
-    def list_agents(self) -> List[str]:
+    def list_agents(self) -> list[str]:
         """List all agent IDs registered with the engine."""
         return list(self._agents.keys())
 

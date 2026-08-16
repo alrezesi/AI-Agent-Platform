@@ -2,15 +2,14 @@
 # PostgreSQL-backed registry using SQLAlchemy 2.0 async
 
 import json
-from typing import List, Optional
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select, delete, update, func
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy import delete, select, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy.types import String, DateTime, Integer, JSON, Enum as SQLAEnum
+from sqlalchemy.types import DateTime, String
 
-from src.agent_platform.core.agent import AgentRecord, AgentStatus, AgentCapability
+from src.agent_platform.core.agent import AgentCapability, AgentRecord, AgentStatus
 from src.agent_platform.registry.base import BaseAgentRegistry
 
 
@@ -19,7 +18,7 @@ class Base(DeclarativeBase):
 
 
 def utcnow_naive() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class AgentORM(Base):
@@ -27,14 +26,14 @@ class AgentORM(Base):
 
     agent_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(String(500))
-    capabilities: Mapped[Optional[str]] = mapped_column(String(1000))  # JSON array
+    description: Mapped[str | None] = mapped_column(String(500))
+    capabilities: Mapped[str | None] = mapped_column(String(1000))  # JSON array
     status: Mapped[str] = mapped_column(String(20), default=AgentStatus.ACTIVE.value)
-    endpoint: Mapped[Optional[str]] = mapped_column(String(255))
-    metadata_json: Mapped[Optional[str]] = mapped_column(String(2000))  # JSON
+    endpoint: Mapped[str | None] = mapped_column(String(255))
+    metadata_json: Mapped[str | None] = mapped_column(String(2000))  # JSON
     registered_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive)
     last_heartbeat: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive)
-    tenant_id: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(64), index=True)
 
     def to_record(self) -> AgentRecord:
         caps = json.loads(self.capabilities) if self.capabilities else []
@@ -92,7 +91,7 @@ class PostgresAgentRegistry(BaseAgentRegistry):
 
             await session.commit()
 
-    async def unregister(self, agent_id: str, tenant_id: Optional[str] = None) -> bool:
+    async def unregister(self, agent_id: str, tenant_id: str | None = None) -> bool:
         async with self.session_factory() as session:
             stmt = delete(AgentORM).where(AgentORM.agent_id == agent_id)
             if tenant_id:
@@ -101,7 +100,7 @@ class PostgresAgentRegistry(BaseAgentRegistry):
             await session.commit()
             return result.rowcount > 0
 
-    async def get_agent(self, agent_id: str, tenant_id: Optional[str] = None) -> Optional[AgentRecord]:
+    async def get_agent(self, agent_id: str, tenant_id: str | None = None) -> AgentRecord | None:
         async with self.session_factory() as session:
             stmt = select(AgentORM).where(AgentORM.agent_id == agent_id)
             if tenant_id:
@@ -112,7 +111,7 @@ class PostgresAgentRegistry(BaseAgentRegistry):
                 return None
             return orm.to_record()
 
-    async def heartbeat(self, agent_id: str, tenant_id: Optional[str] = None) -> bool:
+    async def heartbeat(self, agent_id: str, tenant_id: str | None = None) -> bool:
         async with self.session_factory() as session:
             stmt = (
                 update(AgentORM)
@@ -127,12 +126,12 @@ class PostgresAgentRegistry(BaseAgentRegistry):
 
     async def discover(
         self,
-        capability: Optional[str] = None,
-        status: Optional[AgentStatus] = None,
-        tenant_id: Optional[str] = None,
+        capability: str | None = None,
+        status: AgentStatus | None = None,
+        tenant_id: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[AgentRecord]:
+    ) -> list[AgentRecord]:
         async with self.session_factory() as session:
             stmt = select(AgentORM)
             if tenant_id:
@@ -165,8 +164,8 @@ class PostgresAgentRegistry(BaseAgentRegistry):
             return records
 
     async def list_all(
-        self, tenant_id: Optional[str] = None, limit: int = 100, offset: int = 0
-    ) -> List[AgentRecord]:
+        self, tenant_id: str | None = None, limit: int = 100, offset: int = 0
+    ) -> list[AgentRecord]:
         return await self.discover(tenant_id=tenant_id, limit=limit, offset=offset)
 
     async def cleanup_stale(self, ttl_seconds: int = 60) -> int:

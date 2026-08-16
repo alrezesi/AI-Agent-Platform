@@ -1,12 +1,13 @@
 
 # Retry policies with exponential backoff and jitter
 
-import random
 import asyncio
 import logging
+import random
 from abc import ABC, abstractmethod
-from typing import Type, List, Optional, Callable, Awaitable, Any
+from collections.abc import Awaitable, Callable
 from enum import Enum
+from typing import Any
 
 from .exceptions import RetryExhaustedError
 
@@ -50,7 +51,7 @@ class FixedDelayRetry(RetryPolicy):
     Fixed delay between retries.
     """
 
-    def __init__(self, delay: float, max_retries: int, retryable_exceptions: Optional[List[Type[Exception]]] = None):
+    def __init__(self, delay: float, max_retries: int, retryable_exceptions: list[type[Exception]] | None = None):
         self._delay = delay
         self._max_retries = max_retries
         self._retryable_exceptions = retryable_exceptions or [Exception]
@@ -80,7 +81,7 @@ class ExponentialBackoffRetry(RetryPolicy):
         multiplier: float = 2.0,
         max_delay: float = 60.0,
         max_retries: int = 5,
-        retryable_exceptions: Optional[List[Type[Exception]]] = None,
+        retryable_exceptions: list[type[Exception]] | None = None,
         jitter: bool = True,
         jitter_factor: float = 0.1,
     ):
@@ -116,7 +117,7 @@ class RetryExecutor:
     Executes an async function with retry logic using a retry policy.
     """
 
-    def __init__(self, policy: RetryPolicy, on_retry: Optional[Callable[[Exception, int], Awaitable[None]]] = None):
+    def __init__(self, policy: RetryPolicy, on_retry: Callable[[Exception, int], Awaitable[None]] | None = None):
         self.policy = policy
         self.on_retry = on_retry
 
@@ -125,13 +126,11 @@ class RetryExecutor:
         Execute the given async function with retries.
         """
         attempt = 0
-        last_exception = None
 
         while True:
             try:
                 return await func(*args, **kwargs)
             except Exception as e:
-                last_exception = e
                 if not self.policy.should_retry(e, attempt):
                     logger.error(f"Retry policy exhausted or non-retryable error: {e}")
                     raise RetryExhaustedError(f"All retries exhausted: {e}") from e

@@ -6,7 +6,6 @@ import importlib.util
 import inspect
 import logging
 from pathlib import Path
-from typing import List, Type, Optional
 
 from .base import Plugin
 from .exceptions import PluginLoadError
@@ -14,7 +13,7 @@ from .exceptions import PluginLoadError
 logger = logging.getLogger(__name__)
 
 
-def discover_plugins(directory: Optional[Path] = None) -> List[Type[Plugin]]:
+def discover_plugins(directory: Path | None = None) -> list[type[Plugin]]:
     """
     Discover plugin classes from a directory.
     If directory is None, uses the default 'plugins/' folder in the project root.
@@ -57,7 +56,7 @@ def discover_plugins(directory: Optional[Path] = None) -> List[Type[Plugin]]:
     return plugin_classes
 
 
-def load_plugin_from_path(file_path: Path) -> Optional[Type[Plugin]]:
+def load_plugin_from_path(file_path: Path) -> type[Plugin] | None:
     """
     Load a single plugin class from a specific Python file.
     """

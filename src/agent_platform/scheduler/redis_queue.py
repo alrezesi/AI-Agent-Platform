@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
-from typing import Any, Optional, List, TYPE_CHECKING
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 
@@ -39,7 +39,7 @@ class RedisTaskQueue(BaseTaskQueue):
     TASK_PREFIX = "tasks:data:"
     META_PREFIX = "tasks:meta:"
 
-    def __init__(self, redis_client: RedisClient, ttl_seconds: int = 86400, session_factory: Optional[Any] = None):
+    def __init__(self, redis_client: RedisClient, ttl_seconds: int = 86400, session_factory: Any | None = None):
         self.redis = redis_client
         self.ttl_seconds = ttl_seconds
         self.session_factory = session_factory
@@ -85,7 +85,7 @@ class RedisTaskQueue(BaseTaskQueue):
                 session.add(TaskORM.from_task(task))
             await session.commit()
 
-    async def _load_task_from_db(self, task_id: str, tenant_id: Optional[str] = None) -> Optional[Task]:
+    async def _load_task_from_db(self, task_id: str, tenant_id: str | None = None) -> Task | None:
         if not self.session_factory:
             return None
         async with self.session_factory() as session:
@@ -99,10 +99,10 @@ class RedisTaskQueue(BaseTaskQueue):
 
     async def _list_tasks_from_db(
         self,
-        filters: Optional[TaskFilterOptions] = None,
+        filters: TaskFilterOptions | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Task]:
+    ) -> list[Task]:
         if not self.session_factory:
             return []
         async with self.session_factory() as session:
@@ -120,7 +120,7 @@ class RedisTaskQueue(BaseTaskQueue):
             result = await session.execute(stmt)
             return [orm.to_task() for orm in result.scalars().all()]
 
-    async def _get_stats_from_db(self, tenant_id: Optional[str] = None) -> TaskStats:
+    async def _get_stats_from_db(self, tenant_id: str | None = None) -> TaskStats:
         tasks = await self._list_tasks_from_db(None, limit=100000, offset=0)
         stats = TaskStats(total=0, pending=0, running=0, completed=0, failed=0, cancelled=0, timeout=0)
         for task in tasks:
@@ -170,7 +170,7 @@ class RedisTaskQueue(BaseTaskQueue):
         except Exception:
             logger.exception("Redis enqueue failed for %s; task remains durable in PostgreSQL", task.task_id)
 
-    async def dequeue(self, worker_id: Optional[str] = None, lease_seconds: Optional[float] = None) -> Optional[Task]:
+    async def dequeue(self, worker_id: str | None = None, lease_seconds: float | None = None) -> Task | None:
         """
         Pop the highest priority task from the queue and persist the lease.
         """
@@ -192,9 +192,9 @@ class RedisTaskQueue(BaseTaskQueue):
             return None
 
         task.status = TaskStatus.RUNNING
-        task.started_at = datetime.now(timezone.utc)
+        task.started_at = datetime.now(UTC)
         lease_seconds = lease_seconds or float(self.ttl_seconds)
-        lease_expires_at = datetime.fromtimestamp(datetime.now(timezone.utc).timestamp() + lease_seconds, tz=timezone.utc)
+        lease_expires_at = datetime.fromtimestamp(datetime.now(UTC).timestamp() + lease_seconds, tz=UTC)
         await self._save_task_to_db(task)
 
         if self.session_factory:
@@ -228,7 +228,7 @@ class RedisTaskQueue(BaseTaskQueue):
             logger.exception("Redis dequeue bookkeeping failed for %s", task_id)
         return task
 
-    async def reclaim_orphaned_tasks(self) -> List[str]:
+    async def reclaim_orphaned_tasks(self) -> list[str]:
         """
         Requeue tasks that were left RUNNING in PostgreSQL after a worker crash
         or Redis restart.
@@ -236,8 +236,8 @@ class RedisTaskQueue(BaseTaskQueue):
         if not self.session_factory:
             return []
 
-        now = datetime.now(timezone.utc)
-        reclaimed: List[str] = []
+        now = datetime.now(UTC)
+        reclaimed: list[str] = []
         async with self.session_factory() as session:
             stmt = select(TaskORM).where(TaskORM.status == TaskStatus.RUNNING.value)
             result = await session.execute(stmt)
@@ -281,11 +281,11 @@ class RedisTaskQueue(BaseTaskQueue):
 
         return reclaimed
 
-    async def reclaim_expired_tasks(self) -> List[str]:
+    async def reclaim_expired_tasks(self) -> list[str]:
         """Compatibility alias for worker-failure recovery."""
         return await self.reclaim_orphaned_tasks()
 
-    async def recover_orphaned_tasks(self) -> List[str]:
+    async def recover_orphaned_tasks(self) -> list[str]:
         """
         Recover tasks that are PENDING or RUNNING in PostgreSQL but missing from Redis.
         This is intended for startup after Redis restarts.
@@ -293,8 +293,8 @@ class RedisTaskQueue(BaseTaskQueue):
         if not self.session_factory:
             return []
 
-        recovered: List[str] = []
-        now = datetime.now(timezone.utc)
+        recovered: list[str] = []
+        now = datetime.now(UTC)
         async with self.session_factory() as session:
             stmt = select(TaskORM).where(TaskORM.status.in_([TaskStatus.PENDING.value, TaskStatus.RUNNING.value]))
             result = await session.execute(stmt)
@@ -340,7 +340,7 @@ class RedisTaskQueue(BaseTaskQueue):
 
         return recovered
 
-    async def peek(self) -> Optional[Task]:
+    async def peek(self) -> Task | None:
         """Peek at the next task without removing it."""
         try:
             result = await self.redis.zrange(self.QUEUE_KEY, 0, 0, withscores=True)
@@ -354,7 +354,7 @@ class RedisTaskQueue(BaseTaskQueue):
             logger.exception("Redis peek failed")
         return None
 
-    async def cancel(self, task_id: str, tenant_id: Optional[str] = None) -> bool:
+    async def cancel(self, task_id: str, tenant_id: str | None = None) -> bool:
         """Cancel a pending task."""
         task = await self.get_task(task_id, tenant_id)
         if not task:
@@ -363,7 +363,7 @@ class RedisTaskQueue(BaseTaskQueue):
             return False
 
         task.status = TaskStatus.CANCELLED
-        task.completed_at = datetime.now(timezone.utc)
+        task.completed_at = datetime.now(UTC)
         await self._save_task_to_db(task)
         try:
             await self.redis.zrem(self.QUEUE_KEY, task_id)
@@ -376,7 +376,7 @@ class RedisTaskQueue(BaseTaskQueue):
             logger.exception("Redis cancel bookkeeping failed for %s", task_id)
         return True
 
-    async def get_task(self, task_id: str, tenant_id: Optional[str] = None) -> Optional[Task]:
+    async def get_task(self, task_id: str, tenant_id: str | None = None) -> Task | None:
         """Retrieve a task by ID."""
         try:
             data = await self.redis.get(self._task_key(task_id))
@@ -391,10 +391,10 @@ class RedisTaskQueue(BaseTaskQueue):
 
     async def list_tasks(
         self,
-        filters: Optional[TaskFilterOptions] = None,
+        filters: TaskFilterOptions | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Task]:
+    ) -> list[Task]:
         """List tasks with filtering and pagination."""
         if self.session_factory:
             return await self._list_tasks_from_db(filters, limit, offset)
@@ -427,7 +427,7 @@ class RedisTaskQueue(BaseTaskQueue):
         tasks.sort(key=lambda t: t.created_at, reverse=True)
         return tasks[offset:offset + limit]
 
-    async def get_stats(self, tenant_id: Optional[str] = None) -> TaskStats:
+    async def get_stats(self, tenant_id: str | None = None) -> TaskStats:
         """Get task statistics."""
         if self.session_factory:
             return await self._get_stats_from_db(tenant_id)

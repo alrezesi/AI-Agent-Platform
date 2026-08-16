@@ -2,12 +2,13 @@
 # End-to-end test on real Docker Compose stack (no mocks)
 
 import asyncio
+import socket
 import subprocess
 import time
-import socket
+from pathlib import Path
+
 import httpx
 import pytest
-from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 COMPOSE_FILE = PROJECT_ROOT / "docker-compose.chaos.yml"
@@ -76,6 +77,18 @@ async def wait_for_agent(agent_id: str, timeout: int = 60) -> bool:
         return False
 
 
+async def get_auth_headers(client: httpx.AsyncClient) -> dict[str, str]:
+    """Create a tenant and return headers that satisfy the API auth middleware."""
+    tenant_resp = await client.post(
+        "http://localhost:8000/tenants/",
+        json={"name": "Docker E2E Tenant", "description": "Docker e2e test tenant"},
+        timeout=10,
+    )
+    tenant_resp.raise_for_status()
+    tenant_id = tenant_resp.json()["tenant_id"]
+    return {"X-Tenant-ID": tenant_id}
+
+
 async def poll_task(client, task_id, timeout=30):
     """
     Poll the task status until it completes, fails, or times out.
@@ -132,6 +145,7 @@ async def test_docker_e2e_with_real_agents(docker_stack):
         assert found, f"{agent_id} was not registered within 60 seconds"
 
     async with httpx.AsyncClient() as client:
+        headers = await get_auth_headers(client)
         # 1. Test BGE-M3 embedding
         print("\n📤 Testing BGE-M3 embedding agent...")
         payload = {
@@ -141,7 +155,7 @@ async def test_docker_e2e_with_real_agents(docker_stack):
             "priority": 1,
             "timeout_seconds": 30,
         }
-        resp = await client.post("http://localhost:8000/tasks/", json=payload)
+        resp = await client.post("http://localhost:8000/tasks/", json=payload, headers=headers)
         assert resp.status_code == 200, f"Submission failed: {resp.text}"
         task_id = resp.json()["task_id"]
         result = await poll_task(client, task_id, timeout=30)
@@ -164,7 +178,7 @@ async def test_docker_e2e_with_real_agents(docker_stack):
             "priority": 1,
             "timeout_seconds": 60,
         }
-        resp = await client.post("http://localhost:8000/tasks/", json=payload)
+        resp = await client.post("http://localhost:8000/tasks/", json=payload, headers=headers)
         assert resp.status_code == 200, f"Submission failed: {resp.text}"
         task_id = resp.json()["task_id"]
         result = await poll_task(client, task_id, timeout=60)
@@ -181,7 +195,7 @@ async def test_docker_e2e_with_real_agents(docker_stack):
             "payload": {"message": "Hello E2E!"},
             "priority": 1,
         }
-        resp = await client.post("http://localhost:8000/tasks/", json=payload)
+        resp = await client.post("http://localhost:8000/tasks/", json=payload, headers=headers)
         assert resp.status_code == 200
         task_id = resp.json()["task_id"]
         result = await poll_task(client, task_id, timeout=10)

@@ -4,13 +4,13 @@
 import json
 import logging
 import sys
-from enum import Enum
-from typing import Optional, Dict, Any, List
-from datetime import datetime, timezone
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
 
 
-class LogLevel(str, Enum):
+class LogLevel(StrEnum):
     """Log levels."""
     DEBUG = "DEBUG"
     INFO = "INFO"
@@ -24,17 +24,17 @@ class LogEntry:
     """
     A structured log entry.
     """
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     level: LogLevel = LogLevel.INFO
     message: str = ""
     logger_name: str = ""
-    tenant_id: Optional[str] = None
-    trace_id: Optional[str] = None
-    span_id: Optional[str] = None
-    attributes: Dict[str, Any] = field(default_factory=dict)
-    exception: Optional[str] = None
+    tenant_id: str | None = None
+    trace_id: str | None = None
+    span_id: str | None = None
+    attributes: dict[str, Any] = field(default_factory=dict)
+    exception: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "timestamp": self.timestamp.isoformat(),
@@ -96,12 +96,12 @@ class LogManager:
         self,
         message: str,
         level: LogLevel = LogLevel.INFO,
-        logger_name: Optional[str] = None,
-        tenant_id: Optional[str] = None,
-        trace_id: Optional[str] = None,
-        span_id: Optional[str] = None,
-        attributes: Optional[Dict[str, Any]] = None,
-        exception: Optional[Exception] = None,
+        logger_name: str | None = None,
+        tenant_id: str | None = None,
+        trace_id: str | None = None,
+        span_id: str | None = None,
+        attributes: dict[str, Any] | None = None,
+        exception: Exception | None = None,
     ) -> LogEntry:
         """
         Create a structured log entry.

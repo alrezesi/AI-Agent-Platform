@@ -1,16 +1,16 @@
 
 # Advanced tests for distributed components
 
-import pytest
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
+import pytest
+
+from src.agent_platform.core.task import Task
+from src.agent_platform.distributed.node import NodeInfo
 from src.agent_platform.distributed.orchestrator import DistributedOrchestrator
-from src.agent_platform.distributed.worker import WorkerNode, WorkerConfig
 from src.agent_platform.distributed.queue import DistributedTaskQueue
 from src.agent_platform.distributed.registry import DistributedRegistry
-from src.agent_platform.distributed.node import NodeInfo, NodeStatus
-from src.agent_platform.core.task import Task, TaskPriority
+from src.agent_platform.distributed.worker import WorkerConfig, WorkerNode
 
 
 @pytest.fixture
@@ -88,7 +88,7 @@ async def test_worker_node_task_execution(mock_redis):
     node_info = NodeInfo.create(port=8080)
 
     # Create a real agent for testing
-    from src.agent_platform.core.agent import BaseAgent, AgentRuntimeState
+    from src.agent_platform.core.agent import AgentRuntimeState, BaseAgent
 
     class EchoAgent(BaseAgent):
         async def initialize(self):

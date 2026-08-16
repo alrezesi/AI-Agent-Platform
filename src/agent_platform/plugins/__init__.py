@@ -2,15 +2,15 @@
 # Plugin system exports
 
 from .base import Plugin, PluginContext
+from .discovery import discover_plugins, load_plugin_from_path
 from .exceptions import (
     PluginError,
     PluginLoadError,
-    PluginUnloadError,
     PluginNotFoundError,
+    PluginUnloadError,
 )
-from .hooks import HookRegistry, HookPoint
+from .hooks import HookPoint, HookRegistry
 from .manager import PluginManager
-from .discovery import discover_plugins, load_plugin_from_path
 
 __all__ = [
     "Plugin",

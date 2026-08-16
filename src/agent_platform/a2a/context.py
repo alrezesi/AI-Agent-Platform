@@ -1,10 +1,9 @@
 
 # Conversation context sharing between agents
 
-from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-import json
+from datetime import UTC, datetime
+from typing import Any
 
 
 @dataclass
@@ -14,11 +13,11 @@ class ConversationContext:
     Agents can read from and write to this context.
     """
     session_id: str
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    data: Dict[str, Any] = field(default_factory=dict)
-    history: List[Dict[str, Any]] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    data: dict[str, Any] = field(default_factory=dict)
+    history: list[dict[str, Any]] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get a value from context data."""
@@ -27,24 +26,24 @@ class ConversationContext:
     def set(self, key: str, value: Any) -> None:
         """Set a value in context data."""
         self.data[key] = value
-        self.updated_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(UTC)
 
-    def push_history(self, entry: Dict[str, Any]) -> None:
+    def push_history(self, entry: dict[str, Any]) -> None:
         """Add an entry to conversation history."""
-        entry['timestamp'] = datetime.now(timezone.utc).isoformat()
+        entry['timestamp'] = datetime.now(UTC).isoformat()
         self.history.append(entry)
-        self.updated_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(UTC)
 
-    def get_history(self, limit: int = 10) -> List[Dict[str, Any]]:
+    def get_history(self, limit: int = 10) -> list[dict[str, Any]]:
         """Get recent history entries."""
         return self.history[-limit:]
 
-    def merge(self, other: Dict[str, Any]) -> None:
+    def merge(self, other: dict[str, Any]) -> None:
         """Merge data from another context."""
         self.data.update(other)
-        self.updated_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(UTC)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
         return {
             "session_id": self.session_id,
@@ -56,16 +55,16 @@ class ConversationContext:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'ConversationContext':
+    def from_dict(cls, data: dict[str, Any]) -> 'ConversationContext':
         """Deserialize from dictionary."""
         context = cls(
             session_id=data['session_id'],
-            created_at=datetime.fromisoformat(data['created_at']) if 'created_at' in data else datetime.now(timezone.utc),
+            created_at=datetime.fromisoformat(data['created_at']) if 'created_at' in data else datetime.now(UTC),
             data=data.get('data', {}),
             history=data.get('history', []),
             metadata=data.get('metadata', {}),
         )
-        context.updated_at = datetime.fromisoformat(data['updated_at']) if 'updated_at' in data else datetime.now(timezone.utc)
+        context.updated_at = datetime.fromisoformat(data['updated_at']) if 'updated_at' in data else datetime.now(UTC)
         return context
 
 
@@ -76,9 +75,9 @@ class ContextSharingManager:
     """
 
     def __init__(self):
-        self._contexts: Dict[str, ConversationContext] = {}
+        self._contexts: dict[str, ConversationContext] = {}
 
-    def create_context(self, session_id: str, initial_data: Optional[Dict[str, Any]] = None) -> ConversationContext:
+    def create_context(self, session_id: str, initial_data: dict[str, Any] | None = None) -> ConversationContext:
         """Create a new conversation context."""
         context = ConversationContext(
             session_id=session_id,
@@ -87,11 +86,11 @@ class ContextSharingManager:
         self._contexts[session_id] = context
         return context
 
-    def get_context(self, session_id: str) -> Optional[ConversationContext]:
+    def get_context(self, session_id: str) -> ConversationContext | None:
         """Retrieve a context by session ID."""
         return self._contexts.get(session_id)
 
-    def update_context(self, session_id: str, updates: Dict[str, Any]) -> Optional[ConversationContext]:
+    def update_context(self, session_id: str, updates: dict[str, Any]) -> ConversationContext | None:
         """Update a context with new data."""
         context = self._contexts.get(session_id)
         if context:
@@ -99,7 +98,7 @@ class ContextSharingManager:
             return context
         return None
 
-    def share_context(self, session_id: str, target_agent_id: str) -> Dict[str, Any]:
+    def share_context(self, session_id: str, target_agent_id: str) -> dict[str, Any]:
         """
         Prepare context for sharing with another agent.
         Returns the context data without sensitive metadata if needed.
@@ -114,7 +113,7 @@ class ContextSharingManager:
             "history": context.get_history(5),  # Share last 5 entries
         }
 
-    def receive_context(self, shared_data: Dict[str, Any]) -> str:
+    def receive_context(self, shared_data: dict[str, Any]) -> str:
         """
         Receive shared context from another agent.
         Returns the session_id.

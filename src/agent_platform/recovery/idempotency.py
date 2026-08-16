@@ -1,15 +1,13 @@
 # src/agent_platform/recovery/idempotency.py
 # Idempotency manager to prevent duplicate execution
 
+import asyncio
 import hashlib
 import json
-import asyncio
 import logging
-from typing import Optional, Dict, Any
-from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
-
-from .exceptions import IdempotencyError
+from datetime import UTC, datetime
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -20,9 +18,9 @@ class ExecutionRecord:
     key: str
     result: Any
     status: str  # "completed", "failed", "processing"
-    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    completed_at: Optional[datetime] = None
-    error: Optional[str] = None
+    started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    completed_at: datetime | None = None
+    error: str | None = None
 
 
 class IdempotencyManager:
@@ -32,7 +30,7 @@ class IdempotencyManager:
     """
 
     def __init__(self, ttl_seconds: int = 86400):  # 24 hours default
-        self._records: Dict[str, ExecutionRecord] = {}
+        self._records: dict[str, ExecutionRecord] = {}
         self._ttl_seconds = ttl_seconds
         self._lock = asyncio.Lock()
 
@@ -45,7 +43,7 @@ class IdempotencyManager:
         data = json.dumps({"args": args, "kwargs": kwargs}, sort_keys=True)
         return hashlib.sha256(data.encode()).hexdigest()
 
-    async def check_and_lock(self, key: str) -> Optional[ExecutionRecord]:
+    async def check_and_lock(self, key: str) -> ExecutionRecord | None:
         """
         Check if a key is already being processed or completed.
         If not, lock it by creating a record with status "processing".
@@ -81,7 +79,7 @@ class IdempotencyManager:
             self._records[key] = record
             return None  # Indicates lock acquired
 
-    async def complete(self, key: str, result: Any, error: Optional[str] = None) -> None:
+    async def complete(self, key: str, result: Any, error: str | None = None) -> None:
         """
         Mark an idempotent operation as completed (success or failure).
         """
@@ -93,9 +91,9 @@ class IdempotencyManager:
             record.status = "failed" if error else "completed"
             record.result = result if not error else None
             record.error = error
-            record.completed_at = datetime.now(timezone.utc)
+            record.completed_at = datetime.now(UTC)
 
-    async def get_result(self, key: str) -> Optional[Any]:
+    async def get_result(self, key: str) -> Any | None:
         """
         Get the result of a completed idempotent operation.
         """
@@ -115,7 +113,7 @@ class IdempotencyManager:
 
     def _cleanup_expired(self) -> None:
         """Remove records older than TTL."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expired_keys = [
             key for key, rec in self._records.items()
             if (now - rec.started_at).total_seconds() > self._ttl_seconds

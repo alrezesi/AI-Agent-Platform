@@ -1,8 +1,8 @@
 
 # Execution context for an agent instance
 
-from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -13,19 +13,19 @@ class AgentContext:
     """
 
     agent_id: str
-    tenant_id: Optional[str] = None
+    tenant_id: str | None = None
 
     # Configuration dictionary (e.g., model settings, API keys)
-    config: Dict[str, Any] = field(default_factory=dict)
+    config: dict[str, Any] = field(default_factory=dict)
 
     # Short-term memory for the current session or conversation
-    memory: Dict[str, Any] = field(default_factory=dict)
+    memory: dict[str, Any] = field(default_factory=dict)
 
     # Session ID for tracking multi-turn interactions
-    session_id: Optional[str] = None
+    session_id: str | None = None
 
     # Arbitrary variables that can be set during execution
-    variables: Dict[str, Any] = field(default_factory=dict)
+    variables: dict[str, Any] = field(default_factory=dict)
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get a value from memory or variables."""
@@ -41,7 +41,7 @@ class AgentContext:
         """Store a value in memory (persistent for the session)."""
         self.memory[key] = value
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize context for logging or transfer."""
         return {
             "agent_id": self.agent_id,

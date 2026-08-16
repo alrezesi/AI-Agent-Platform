@@ -3,11 +3,10 @@
 
 import asyncio
 import logging
-from typing import Optional, Callable, Awaitable, Any
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from src.agent_platform.core.task import Task, TaskStatus
 from src.agent_platform.core.agent import BaseAgent
+from src.agent_platform.core.task import Task, TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +47,11 @@ class TaskWorker:
                 # Success
                 self.task.status = TaskStatus.COMPLETED
                 self.task.result = result
-                self.task.completed_at = datetime.now(timezone.utc)
+                self.task.completed_at = datetime.now(UTC)
                 logger.info(f"Task {self.task.task_id} completed successfully on attempt {attempt+1}")
                 break
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self.task.retry_count = attempt + 1
                 if attempt >= self.task.max_retries:
                     self.task.status = TaskStatus.TIMEOUT
@@ -86,6 +85,6 @@ class TaskWorker:
 
         # Update completed_at if not set (e.g., if it failed without setting)
         if self.task.completed_at is None and self.task.status in (TaskStatus.FAILED, TaskStatus.TIMEOUT, TaskStatus.CANCELLED):
-            self.task.completed_at = datetime.now(timezone.utc)
+            self.task.completed_at = datetime.now(UTC)
 
         return self.task

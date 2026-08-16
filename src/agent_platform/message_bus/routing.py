@@ -2,7 +2,7 @@
 # Role-based routing utilities
 
 from enum import Enum
-from typing import Dict, List, Any, Optional
+from typing import Any
 
 from src.agent_platform.message_bus.models import RouteRule
 
@@ -13,7 +13,7 @@ class RoleRouter:
     """
 
     def __init__(self):
-        self._rules: Dict[str, RouteRule] = {}
+        self._rules: dict[str, RouteRule] = {}
 
     def add_rule(self, rule: RouteRule) -> None:
         """Add a routing rule."""
@@ -26,7 +26,7 @@ class RoleRouter:
             return True
         return False
 
-    def evaluate(self, message: Any, context: Optional[Dict] = None) -> List[str]:
+    def evaluate(self, message: Any, context: dict | None = None) -> list[str]:
         """
         Evaluate all rules and return target agent IDs or roles.
         """
@@ -46,7 +46,7 @@ class RoleRouter:
                 break  # First matching rule wins
         return list(set(targets))
 
-    def _matches(self, rule: RouteRule, message: Any, context: Optional[Dict] = None) -> bool:
+    def _matches(self, rule: RouteRule, message: Any, context: dict | None = None) -> bool:
         """Check if message matches rule conditions."""
         for key, expected in rule.conditions.items():
             # Support dot notation

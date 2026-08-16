@@ -1,10 +1,11 @@
 
 # Hook system for plugins
 
-from enum import Enum, auto
-from typing import Dict, List, Callable, Any, Awaitable
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
+from enum import Enum, auto
+from typing import Any
 
 from .exceptions import PluginHookError
 
@@ -35,7 +36,7 @@ class HookRegistry:
 
     def __init__(self):
         # hook_point -> list of (plugin_id, handler) tuples
-        self._handlers: Dict[HookPoint, List[tuple]] = {}
+        self._handlers: dict[HookPoint, list[tuple]] = {}
         self._lock = asyncio.Lock()
 
     def register(
@@ -68,7 +69,7 @@ class HookRegistry:
         hook_point: HookPoint,
         *args,
         **kwargs,
-    ) -> List[Any]:
+    ) -> list[Any]:
         """
         Execute all handlers registered for a hook point.
         Returns a list of results from each handler.

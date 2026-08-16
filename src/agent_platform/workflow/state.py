@@ -1,10 +1,10 @@
 
 # Workflow state management for pause/resume
 
-from typing import Dict, Any, Optional
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
-from .models import Workflow, WorkflowStatus, StepStatus
+from .models import StepStatus, Workflow, WorkflowStatus
 
 
 class WorkflowStateManager:
@@ -16,12 +16,12 @@ class WorkflowStateManager:
     def __init__(self, workflow: Workflow):
         self.workflow = workflow
         self.workflow_status = WorkflowStatus.PENDING
-        self.step_statuses: Dict[str, StepStatus] = {}
-        self.step_results: Dict[str, Any] = {}
-        self.step_errors: Dict[str, str] = {}
-        self.current_step: Optional[str] = None
-        self.started_at: Optional[datetime] = None
-        self.completed_at: Optional[datetime] = None
+        self.step_statuses: dict[str, StepStatus] = {}
+        self.step_results: dict[str, Any] = {}
+        self.step_errors: dict[str, str] = {}
+        self.current_step: str | None = None
+        self.started_at: datetime | None = None
+        self.completed_at: datetime | None = None
 
         # Initialize step statuses
         for step in workflow.steps:
@@ -30,7 +30,7 @@ class WorkflowStateManager:
     def start(self) -> None:
         """Mark workflow as running."""
         self.workflow_status = WorkflowStatus.RUNNING
-        self.started_at = datetime.now(timezone.utc)
+        self.started_at = datetime.now(UTC)
 
     def pause(self) -> None:
         """Pause workflow execution."""
@@ -43,12 +43,12 @@ class WorkflowStateManager:
     def complete(self) -> None:
         """Mark workflow as completed."""
         self.workflow_status = WorkflowStatus.COMPLETED
-        self.completed_at = datetime.now(timezone.utc)
+        self.completed_at = datetime.now(UTC)
 
     def fail(self) -> None:
         """Mark workflow as failed."""
         self.workflow_status = WorkflowStatus.FAILED
-        self.completed_at = datetime.now(timezone.utc)
+        self.completed_at = datetime.now(UTC)
 
     def set_step_status(self, step_id: str, status: StepStatus) -> None:
         """Update status of a step."""
@@ -63,11 +63,11 @@ class WorkflowStateManager:
         """Store error of a step."""
         self.step_errors[step_id] = error
 
-    def get_step_status(self, step_id: str) -> Optional[StepStatus]:
+    def get_step_status(self, step_id: str) -> StepStatus | None:
         """Get status of a step."""
         return self.step_statuses.get(step_id)
 
-    def get_step_result(self, step_id: str) -> Optional[Any]:
+    def get_step_result(self, step_id: str) -> Any | None:
         """Get result of a step."""
         return self.step_results.get(step_id)
 
@@ -110,7 +110,7 @@ class WorkflowStateManager:
                     ready.append(step.step_id)
         return ready
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize state to dict for persistence."""
         return {
             "workflow_id": self.workflow.workflow_id,
@@ -123,7 +123,7 @@ class WorkflowStateManager:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any], workflow: Workflow) -> 'WorkflowStateManager':
+    def from_dict(cls, data: dict[str, Any], workflow: Workflow) -> 'WorkflowStateManager':
         """Restore state from dict."""
         manager = cls(workflow)
         manager.workflow_status = WorkflowStatus(data['workflow_status'])

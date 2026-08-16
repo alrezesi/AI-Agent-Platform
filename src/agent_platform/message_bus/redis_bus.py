@@ -1,10 +1,10 @@
 # src/agent_platform/message_bus/redis_bus.py
 # Redis-backed message bus with full implementation and robust worker
 
-import json
 import asyncio
+import json
 import logging
-from typing import Any, Dict, List, Optional, Set, Callable, Awaitable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 try:
     from redis.asyncio import Redis
@@ -18,8 +18,8 @@ else:
 
 from src.agent_platform.core.message import Message, MessageStatus
 from src.agent_platform.message_bus.base import BaseMessageBus, MessageHandler
-from src.agent_platform.message_bus.models import Subscription, RouteRule, MessageDeliveryRecord
 from src.agent_platform.message_bus.exceptions import MessageDeliveryError
+from src.agent_platform.message_bus.models import MessageDeliveryRecord, RouteRule, Subscription
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +34,11 @@ class RedisMessageBus(BaseMessageBus):
         self.redis = redis_client
         self.message_ttl = message_ttl_seconds
         self._running = False
-        self._handlers: Dict[str, MessageHandler] = {}
+        self._handlers: dict[str, MessageHandler] = {}
         self._pubsub = None
-        self._pubsub_task: Optional[asyncio.Task] = None
-        self._worker_tasks: List[asyncio.Task] = []
-        self._receive_queues: Dict[str, asyncio.Queue] = {}
+        self._pubsub_task: asyncio.Task | None = None
+        self._worker_tasks: list[asyncio.Task] = []
+        self._receive_queues: dict[str, asyncio.Queue] = {}
 
         # Redis key patterns
         self._queue_prefix = "msgbus:queue:"
@@ -122,7 +122,7 @@ class RedisMessageBus(BaseMessageBus):
         logger.info(f"Message {message.message_id} sent to {message.to_agent}")
         return message.message_id
 
-    async def broadcast(self, message: Message) -> List[str]:
+    async def broadcast(self, message: Message) -> list[str]:
         """Broadcast using Redis Pub/Sub."""
         channel = "msgbus:broadcast"
         payload = message.model_dump_json()
@@ -140,7 +140,7 @@ class RedisMessageBus(BaseMessageBus):
 
     # --- Routing (stubs) ---
 
-    async def route_by_role(self, message: Message) -> List[str]:
+    async def route_by_role(self, message: Message) -> list[str]:
         logger.warning("route_by_role not implemented in RedisMessageBus")
         return []
 
@@ -157,9 +157,9 @@ class RedisMessageBus(BaseMessageBus):
         self,
         agent_id: str,
         handler: MessageHandler,
-        topics: Optional[List[str]] = None,
-        roles: Optional[List[str]] = None,
-        filter_criteria: Optional[Dict[str, Any]] = None,
+        topics: list[str] | None = None,
+        roles: list[str] | None = None,
+        filter_criteria: dict[str, Any] | None = None,
     ) -> str:
         """Subscribe an agent."""
         self._handlers[agent_id] = handler
@@ -185,7 +185,7 @@ class RedisMessageBus(BaseMessageBus):
         logger.info(f"Agent {agent_id} subscribed with ID {sub_id}")
         return sub_id
 
-    async def unsubscribe(self, agent_id: str, subscription_id: Optional[str] = None) -> bool:
+    async def unsubscribe(self, agent_id: str, subscription_id: str | None = None) -> bool:
         if agent_id in self._handlers:
             del self._handlers[agent_id]
         if agent_id in self._receive_queues:
@@ -194,7 +194,7 @@ class RedisMessageBus(BaseMessageBus):
         logger.info(f"Agent {agent_id} unsubscribed")
         return True
 
-    async def get_subscriptions(self, agent_id: str) -> List[Subscription]:
+    async def get_subscriptions(self, agent_id: str) -> list[Subscription]:
         return []
 
     # --- Persistence ---
@@ -205,13 +205,13 @@ class RedisMessageBus(BaseMessageBus):
 
     async def get_message_history(
         self,
-        agent_id: Optional[str] = None,
+        agent_id: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Message]:
+    ) -> list[Message]:
         return []
 
-    async def get_message(self, message_id: str) -> Optional[Message]:
+    async def get_message(self, message_id: str) -> Message | None:
         key = f"{self._store_prefix}{message_id}"
         data = await self.redis.get(key)
         if data:
@@ -225,7 +225,7 @@ class RedisMessageBus(BaseMessageBus):
         deleted = await self.redis.delete(key)
         return bool(deleted)
 
-    async def get_delivery_status(self, message_id: str) -> List[MessageDeliveryRecord]:
+    async def get_delivery_status(self, message_id: str) -> list[MessageDeliveryRecord]:
         return []
 
     # --- Internal Helpers (Workers) ---
@@ -290,7 +290,7 @@ class RedisMessageBus(BaseMessageBus):
                     handler = self._handlers.get(agent_id)
                     if handler:
                         await handler(msg)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
 
             except asyncio.CancelledError:

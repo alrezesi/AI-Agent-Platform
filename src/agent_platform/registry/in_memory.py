@@ -2,8 +2,7 @@
 # In-memory registry implementation using a thread-safe dict
 
 import asyncio
-from typing import List, Optional, Dict
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 
 from src.agent_platform.core.agent import AgentRecord, AgentStatus
 from src.agent_platform.registry.base import BaseAgentRegistry
@@ -17,15 +16,15 @@ class InMemoryAgentRegistry(BaseAgentRegistry):
 
     def __init__(self):
         # agent_id -> AgentRecord
-        self._agents: Dict[str, AgentRecord] = {}
+        self._agents: dict[str, AgentRecord] = {}
         self._lock = asyncio.Lock()
 
     async def register(self, agent: AgentRecord) -> None:
         async with self._lock:
-            agent.last_heartbeat = datetime.now(timezone.utc)
+            agent.last_heartbeat = datetime.now(UTC)
             self._agents[agent.agent_id] = agent
 
-    async def unregister(self, agent_id: str, tenant_id: Optional[str] = None) -> bool:
+    async def unregister(self, agent_id: str, tenant_id: str | None = None) -> bool:
         async with self._lock:
             if agent_id in self._agents:
                 # Optional tenant check (if provided)
@@ -35,31 +34,31 @@ class InMemoryAgentRegistry(BaseAgentRegistry):
                 return True
             return False
 
-    async def get_agent(self, agent_id: str, tenant_id: Optional[str] = None) -> Optional[AgentRecord]:
+    async def get_agent(self, agent_id: str, tenant_id: str | None = None) -> AgentRecord | None:
         async with self._lock:
             agent = self._agents.get(agent_id)
             if agent and tenant_id and agent.tenant_id != tenant_id:
                 return None
             return agent
 
-    async def heartbeat(self, agent_id: str, tenant_id: Optional[str] = None) -> bool:
+    async def heartbeat(self, agent_id: str, tenant_id: str | None = None) -> bool:
         async with self._lock:
             agent = self._agents.get(agent_id)
             if not agent:
                 return False
             if tenant_id and agent.tenant_id != tenant_id:
                 return False
-            agent.last_heartbeat = datetime.now(timezone.utc)
+            agent.last_heartbeat = datetime.now(UTC)
             return True
 
     async def discover(
         self,
-        capability: Optional[str] = None,
-        status: Optional[AgentStatus] = None,
-        tenant_id: Optional[str] = None,
+        capability: str | None = None,
+        status: AgentStatus | None = None,
+        tenant_id: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[AgentRecord]:
+    ) -> list[AgentRecord]:
         async with self._lock:
             results = []
             for agent in self._agents.values():
@@ -79,8 +78,8 @@ class InMemoryAgentRegistry(BaseAgentRegistry):
             return results[offset : offset + limit]
 
     async def list_all(
-        self, tenant_id: Optional[str] = None, limit: int = 100, offset: int = 0
-    ) -> List[AgentRecord]:
+        self, tenant_id: str | None = None, limit: int = 100, offset: int = 0
+    ) -> list[AgentRecord]:
         async with self._lock:
             agents = list(self._agents.values())
             if tenant_id:
@@ -89,7 +88,7 @@ class InMemoryAgentRegistry(BaseAgentRegistry):
 
     async def cleanup_stale(self, ttl_seconds: int = 60) -> int:
         async with self._lock:
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             stale_ids = []
             for agent_id, agent in self._agents.items():
                 if (now - agent.last_heartbeat).total_seconds() > ttl_seconds:

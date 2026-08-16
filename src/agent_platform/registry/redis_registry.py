@@ -1,9 +1,8 @@
 
 # Redis-backed registry using async Redis client with TTL for heartbeat
 
-import json
-from typing import Any, List, Optional, TYPE_CHECKING
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 try:
     from redis.asyncio import Redis
@@ -34,12 +33,12 @@ class RedisAgentRegistry(BaseAgentRegistry):
         return f"agent:{agent_id}"
 
     async def register(self, agent: AgentRecord) -> None:
-        agent.last_heartbeat = datetime.now(timezone.utc)
+        agent.last_heartbeat = datetime.now(UTC)
         data = agent.model_dump_json()
         key = self._key(agent.agent_id)
         await self.redis.setex(key, self.ttl_seconds, data)
 
-    async def unregister(self, agent_id: str, tenant_id: Optional[str] = None) -> bool:
+    async def unregister(self, agent_id: str, tenant_id: str | None = None) -> bool:
         # Optional tenant check: we need to fetch first
         if tenant_id:
             agent = await self.get_agent(agent_id, tenant_id)
@@ -49,7 +48,7 @@ class RedisAgentRegistry(BaseAgentRegistry):
         deleted = await self.redis.delete(key)
         return deleted > 0
 
-    async def get_agent(self, agent_id: str, tenant_id: Optional[str] = None) -> Optional[AgentRecord]:
+    async def get_agent(self, agent_id: str, tenant_id: str | None = None) -> AgentRecord | None:
         key = self._key(agent_id)
         data = await self.redis.get(key)
         if not data:
@@ -59,7 +58,7 @@ class RedisAgentRegistry(BaseAgentRegistry):
             return None
         return agent
 
-    async def heartbeat(self, agent_id: str, tenant_id: Optional[str] = None) -> bool:
+    async def heartbeat(self, agent_id: str, tenant_id: str | None = None) -> bool:
         key = self._key(agent_id)
         # Check existence
         exists = await self.redis.exists(key)
@@ -72,18 +71,18 @@ class RedisAgentRegistry(BaseAgentRegistry):
         agent = AgentRecord.model_validate_json(data)
         if tenant_id and agent.tenant_id != tenant_id:
             return False
-        agent.last_heartbeat = datetime.now(timezone.utc)
+        agent.last_heartbeat = datetime.now(UTC)
         await self.redis.setex(key, self.ttl_seconds, agent.model_dump_json())
         return True
 
     async def discover(
         self,
-        capability: Optional[str] = None,
-        status: Optional[AgentStatus] = None,
-        tenant_id: Optional[str] = None,
+        capability: str | None = None,
+        status: AgentStatus | None = None,
+        tenant_id: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[AgentRecord]:
+    ) -> list[AgentRecord]:
         # Scan all keys (not optimal for huge datasets, but works for now)
         # In production, consider using Redisearch or maintain separate sets.
         cursor = 0
@@ -115,8 +114,8 @@ class RedisAgentRegistry(BaseAgentRegistry):
         return results[offset : offset + limit]
 
     async def list_all(
-        self, tenant_id: Optional[str] = None, limit: int = 100, offset: int = 0
-    ) -> List[AgentRecord]:
+        self, tenant_id: str | None = None, limit: int = 100, offset: int = 0
+    ) -> list[AgentRecord]:
         # Same as discover without filters, but we use scan
         return await self.discover(tenant_id=tenant_id, limit=limit, offset=offset)
 

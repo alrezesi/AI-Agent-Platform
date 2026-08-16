@@ -2,10 +2,9 @@
 # Example plugin: logs messages and task events
 
 import logging
-from typing import Dict, Any
+from typing import Any
 
 from src.agent_platform.plugins.base import Plugin, PluginContext
-from src.agent_platform.plugins.hooks import HookPoint
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +34,12 @@ class LoggerPlugin(Plugin):
         """Clean up."""
         logger.info(f"LoggerPlugin {self.plugin_id} unloaded")
 
-    async def on_event(self, event_type: str, data: Dict[str, Any]) -> None:
+    async def on_event(self, event_type: str, data: dict[str, Any]) -> None:
         """Handle arbitrary events."""
         logger.info(f"LoggerPlugin received event {event_type}: {data}")
 
     # Hook handlers - these will be registered by the plugin manager
-    async def on_pre_agent_run(self, task_data: Dict[str, Any]) -> None:
+    async def on_pre_agent_run(self, task_data: dict[str, Any]) -> None:
         """Hook: before agent runs a task."""
         logger.info(f"[Plugin] Pre-agent run: task_id={task_data.get('task_id')}")
 
@@ -48,6 +47,6 @@ class LoggerPlugin(Plugin):
         """Hook: after agent runs a task."""
         logger.info(f"[Plugin] Post-agent run: result={result}")
 
-    async def on_message(self, message: Dict[str, Any]) -> None:
+    async def on_message(self, message: dict[str, Any]) -> None:
         """Hook: on message."""
         logger.info(f"[Plugin] Message: {message.get('type')} from {message.get('from_agent')}")

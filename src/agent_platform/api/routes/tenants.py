@@ -1,12 +1,12 @@
 
 # REST API endpoints for tenant management
 
-from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends, Body, Query
 
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+
+from src.agent_platform.multi_tenant.exceptions import TenantNotFoundError
 from src.agent_platform.multi_tenant.manager import TenantManager
 from src.agent_platform.multi_tenant.models import Tenant, TenantQuota
-from src.agent_platform.multi_tenant.exceptions import TenantNotFoundError
 from src.agent_platform.runtime import get_tenant_manager as get_runtime_tenant_manager
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
@@ -20,9 +20,9 @@ def get_tenant_manager() -> TenantManager:
 @router.post("/", response_model=Tenant)
 async def create_tenant(
     name: str = Body(...),
-    description: Optional[str] = Body(None),
-    quota: Optional[TenantQuota] = Body(None),
-    config: Optional[dict] = Body(None),
+    description: str | None = Body(None),
+    quota: TenantQuota | None = Body(None),
+    config: dict | None = Body(None),
     manager: TenantManager = Depends(get_tenant_manager),
 ):
     """Create a new tenant."""
@@ -96,7 +96,7 @@ async def revoke_api_key(
 
 @router.get("/")
 async def list_tenants(
-    status: Optional[str] = None,
+    status: str | None = None,
     limit: int = 100,
     offset: int = 0,
     manager: TenantManager = Depends(get_tenant_manager),

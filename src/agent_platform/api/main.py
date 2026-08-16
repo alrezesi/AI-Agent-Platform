@@ -6,9 +6,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from src.agent_platform.api.routes import tasks, tenants, monitoring
+from src.agent_platform.api.routes import monitoring, tasks, tenants
 from src.agent_platform.multi_tenant.middleware import TenantMiddleware
-from src.agent_platform.runtime import prepare_runtime
+from src.agent_platform.runtime import get_tenant_manager, prepare_runtime
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -23,7 +24,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(TenantMiddleware)
+app.add_middleware(TenantMiddleware, tenant_manager=get_tenant_manager())
 
 # Register routes
 app.include_router(tasks.router)

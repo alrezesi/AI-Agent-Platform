@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-from typing import Any, Mapping, Optional
+from collections.abc import Mapping
+from typing import Any
 
 
 def hash_api_key(api_key: str) -> str:
@@ -20,7 +21,7 @@ def api_key_matches(stored_hash: str, api_key: str) -> bool:
     return hmac.compare_digest(stored_hash, candidate)
 
 
-def stored_api_key_hash(key_record: Mapping[str, Any]) -> Optional[str]:
+def stored_api_key_hash(key_record: Mapping[str, Any]) -> str | None:
     """Return the hash that should be used to look up a stored key record."""
     stored_hash = key_record.get("key_hash")
     if stored_hash:

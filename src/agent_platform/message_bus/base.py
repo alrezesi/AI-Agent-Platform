@@ -2,10 +2,11 @@
 # Abstract base class for message bus implementations (enhanced)
 
 from abc import ABC, abstractmethod
-from typing import Optional, Callable, Awaitable, List, Dict, Any
-from src.agent_platform.core.message import Message
-from src.agent_platform.message_bus.models import Subscription, RouteRule, MessageDeliveryRecord
+from collections.abc import Awaitable, Callable
+from typing import Any
 
+from src.agent_platform.core.message import Message
+from src.agent_platform.message_bus.models import MessageDeliveryRecord, RouteRule, Subscription
 
 MessageHandler = Callable[[Message], Awaitable[None]]
 """Type alias for async message handler functions."""
@@ -29,7 +30,7 @@ class BaseMessageBus(ABC):
         pass
 
     @abstractmethod
-    async def broadcast(self, message: Message) -> List[str]:
+    async def broadcast(self, message: Message) -> list[str]:
         """
         Broadcast a message to all registered agents.
         Returns list of delivered message IDs.
@@ -48,7 +49,7 @@ class BaseMessageBus(ABC):
     # --- Advanced Routing ---
 
     @abstractmethod
-    async def route_by_role(self, message: Message) -> List[str]:
+    async def route_by_role(self, message: Message) -> list[str]:
         """
         Route a message to agents based on their roles.
         Returns list of agent IDs that should receive the message.
@@ -72,9 +73,9 @@ class BaseMessageBus(ABC):
         self,
         agent_id: str,
         handler: MessageHandler,
-        topics: Optional[List[str]] = None,
-        roles: Optional[List[str]] = None,
-        filter_criteria: Optional[Dict[str, Any]] = None,
+        topics: list[str] | None = None,
+        roles: list[str] | None = None,
+        filter_criteria: dict[str, Any] | None = None,
     ) -> str:
         """
         Subscribe an agent to receive messages.
@@ -83,7 +84,7 @@ class BaseMessageBus(ABC):
         pass
 
     @abstractmethod
-    async def unsubscribe(self, agent_id: str, subscription_id: Optional[str] = None) -> bool:
+    async def unsubscribe(self, agent_id: str, subscription_id: str | None = None) -> bool:
         """
         Unsubscribe an agent from all or a specific subscription.
         Returns True if unsubscribed.
@@ -91,7 +92,7 @@ class BaseMessageBus(ABC):
         pass
 
     @abstractmethod
-    async def get_subscriptions(self, agent_id: str) -> List[Subscription]:
+    async def get_subscriptions(self, agent_id: str) -> list[Subscription]:
         """Get all subscriptions for an agent."""
         pass
 
@@ -105,15 +106,15 @@ class BaseMessageBus(ABC):
     @abstractmethod
     async def get_message_history(
         self,
-        agent_id: Optional[str] = None,
+        agent_id: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Message]:
+    ) -> list[Message]:
         """Retrieve message history for an agent or all messages."""
         pass
 
     @abstractmethod
-    async def get_message(self, message_id: str) -> Optional[Message]:
+    async def get_message(self, message_id: str) -> Message | None:
         """Retrieve a message by ID from persistent storage."""
         pass
 
@@ -128,7 +129,7 @@ class BaseMessageBus(ABC):
         pass
 
     @abstractmethod
-    async def get_delivery_status(self, message_id: str) -> List[MessageDeliveryRecord]:
+    async def get_delivery_status(self, message_id: str) -> list[MessageDeliveryRecord]:
         """Get delivery status for all recipients of a message."""
         pass
 

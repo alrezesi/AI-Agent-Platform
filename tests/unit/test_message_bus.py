@@ -1,14 +1,14 @@
 
 # Unit tests for Message Bus implementations
 
-import pytest
 import asyncio
+
+import pytest
 import pytest_asyncio
 
-from src.agent_platform.core.message import Message, MessageType, MessagePriority
+from src.agent_platform.core.message import Message, MessageType
 from src.agent_platform.message_bus.in_memory import InMemoryMessageBus
 from src.agent_platform.message_bus.validator import MessageValidator
-from src.agent_platform.message_bus.exceptions import MessageValidationError
 
 
 @pytest_asyncio.fixture

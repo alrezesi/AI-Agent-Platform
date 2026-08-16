@@ -1,15 +1,12 @@
 
 # Dead Letter Queue for failed messages/tasks
 
-import json
 import asyncio
 import logging
-from typing import List, Optional, Dict, Any
-from datetime import datetime, timezone
-from enum import Enum
 from dataclasses import dataclass, field
-
-from .exceptions import DeadLetterError
+from datetime import UTC, datetime
+from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +26,12 @@ class DeadLetterEntry:
     """An entry in the dead letter queue."""
     id: str
     source: str  # e.g., "scheduler", "message_bus", "workflow"
-    original_data: Dict[str, Any]
+    original_data: dict[str, Any]
     reason: DeadLetterReason
-    error_message: Optional[str] = None
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    error_message: str | None = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     retry_count: int = 0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class DeadLetterQueue:
@@ -44,17 +41,17 @@ class DeadLetterQueue:
     """
 
     def __init__(self, max_size: int = 1000):
-        self._entries: List[DeadLetterEntry] = []
+        self._entries: list[DeadLetterEntry] = []
         self._max_size = max_size
         self._lock = asyncio.Lock()
 
     async def add(
         self,
         source: str,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         reason: DeadLetterReason,
-        error_message: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        error_message: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         """
         Add an item to the dead letter queue.
@@ -65,7 +62,7 @@ class DeadLetterQueue:
                 logger.warning(f"Dead letter queue at max size ({self._max_size}), oldest entry will be evicted")
                 self._entries.pop(0)
 
-            entry_id = f"dlq-{datetime.now(timezone.utc).timestamp()}-{len(self._entries)}"
+            entry_id = f"dlq-{datetime.now(UTC).timestamp()}-{len(self._entries)}"
             entry = DeadLetterEntry(
                 id=entry_id,
                 source=source,
@@ -80,10 +77,10 @@ class DeadLetterQueue:
 
     async def list_entries(
         self,
-        source: Optional[str] = None,
+        source: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[DeadLetterEntry]:
+    ) -> list[DeadLetterEntry]:
         """List dead letter entries with optional filtering."""
         async with self._lock:
             entries = self._entries
@@ -93,7 +90,7 @@ class DeadLetterQueue:
             entries = sorted(entries, key=lambda e: e.created_at, reverse=True)
             return entries[offset:offset + limit]
 
-    async def get_entry(self, entry_id: str) -> Optional[DeadLetterEntry]:
+    async def get_entry(self, entry_id: str) -> DeadLetterEntry | None:
         """Get a specific entry by ID."""
         async with self._lock:
             for entry in self._entries:

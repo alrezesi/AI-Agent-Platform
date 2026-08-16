@@ -5,10 +5,14 @@ from collections import defaultdict
 import pytest
 
 from src.agent_platform.core.message import Message, MessageType
-from src.agent_platform.core.task import Task, TaskStatus
-from src.agent_platform.scheduler.postgres_tasks import TaskORM
+from src.agent_platform.core.task import TaskStatus
 from src.agent_platform.message_bus.in_memory import InMemoryMessageBus
-from src.agent_platform.recovery.retry import ExponentialBackoffRetry, FixedDelayRetry, RetryExecutor, RetryExhaustedError
+from src.agent_platform.recovery.retry import (
+    ExponentialBackoffRetry,
+    FixedDelayRetry,
+    RetryExecutor,
+    RetryExhaustedError,
+)
 from src.agent_platform.scheduler.in_memory import InMemoryTaskQueue
 from src.agent_platform.scheduler.redis_queue import RedisTaskQueue
 from src.agent_platform.scheduler.scheduler import TaskScheduler

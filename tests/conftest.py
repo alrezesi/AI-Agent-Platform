@@ -1,17 +1,29 @@
+"""Shared fixtures and configuration for all tests."""
 
-# Shared fixtures and configuration for all tests
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 import pytest
 from fastapi import FastAPI
 
+REPORTS_DIR = PROJECT_ROOT / "reports"
+REPORTS_DIR.mkdir(exist_ok=True)
+
+# ruff: noqa: E402
 # Import runtime to monkeypatch
 from src.agent_platform import runtime
 from src.agent_platform.api.main import app as original_app
-from src.agent_platform.api.routes.tenants import get_tenant_manager as original_get_tenant_manager
 from src.agent_platform.api.routes.tasks import get_scheduler as original_get_scheduler
+from src.agent_platform.api.routes.tenants import get_tenant_manager as original_get_tenant_manager
 from src.agent_platform.multi_tenant.manager import TenantManager
-from src.agent_platform.scheduler.scheduler import TaskScheduler
 from src.agent_platform.scheduler.in_memory import InMemoryTaskQueue
+from src.agent_platform.scheduler.scheduler import TaskScheduler
 
 
 # Shared storage for tenants (persists across the test session)
@@ -56,4 +68,8 @@ def app() -> FastAPI:
     app = original_app
     app.dependency_overrides[original_get_tenant_manager] = get_test_tenant_manager
     app.dependency_overrides[original_get_scheduler] = get_test_scheduler
+    for middleware in app.user_middleware:
+        if getattr(middleware.cls, "__name__", "") == "TenantMiddleware":
+            middleware.kwargs["tenant_manager"] = get_test_tenant_manager()
+    app.middleware_stack = app.build_middleware_stack()
     return app

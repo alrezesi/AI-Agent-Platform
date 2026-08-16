@@ -1,10 +1,10 @@
 # tests/e2e/test_real_agents_e2e.py
-import os
-import time
 import subprocess
+import time
+from typing import Any
+
 import pytest
 import requests
-from typing import Dict, Any
 
 API_BASE_URL = "http://localhost:8000"
 HEALTH_ENDPOINT = f"{API_BASE_URL}/health"
@@ -15,10 +15,8 @@ STARTUP_WAIT = 15
 POLL_INTERVAL = 2
 TASK_TIMEOUT = 120
 
-TEST_API_KEY = "test-api-key-12345"
 
-
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def docker_stack():
     """Start Docker stack before tests and tear down after."""
     print("\n[E2E] Starting Docker stack for real agent testing...")
@@ -44,12 +42,25 @@ def wait_for_api_ready(timeout: int = 30) -> bool:
     return False
 
 
-def submit_task_and_wait(agent_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Submit a task with the test API key and poll until completion."""
-    headers = {"X-API-Key": TEST_API_KEY}
-    task_data = {"agent_name": agent_name, "parameters": payload}
+@pytest.fixture(scope="module")
+def tenant_auth(docker_stack) -> dict[str, str]:
+    """Create a real tenant through the public API and return auth headers."""
+    response = requests.post(
+        f"{API_BASE_URL}/tenants/",
+        json={"name": "E2E Tenant", "description": "E2E test tenant"},
+        timeout=10,
+    )
+    response.raise_for_status()
+    tenant = response.json()
+    tenant_id = tenant["tenant_id"]
+    return {"X-Tenant-ID": tenant_id}
+
+
+def submit_task_and_wait(agent_name: str, payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
+    """Submit a task with tenant auth and poll until completion."""
+    task_data = {"agent_id": agent_name, "task_type": agent_name, "payload": payload}
     response = requests.post(TASKS_ENDPOINT, json=task_data, headers=headers)
-    assert response.status_code == 202, f"Failed to submit task: {response.text}"
+    assert response.status_code == 200, f"Failed to submit task: {response.text}"
     task_id = response.json().get("task_id")
     assert task_id is not None
 
@@ -76,7 +87,15 @@ def test_real_bge_m3_agent(docker_stack):
     """Test real BGE-M3 agent."""
     assert wait_for_api_ready(), "API service did not become ready in time."
     test_text = "This is a test sentence for embedding generation."
-    result = submit_task_and_wait(agent_name="bge-m3", payload={"text": test_text})
+    response = requests.post(
+        f"{API_BASE_URL}/tenants/",
+        json={"name": "E2E Tenant", "description": "E2E test tenant"},
+        timeout=10,
+    )
+    response.raise_for_status()
+    tenant_id = response.json()["tenant_id"]
+    headers = {"X-Tenant-ID": tenant_id}
+    result = submit_task_and_wait(agent_name="bge-m3", payload={"text": test_text}, headers=headers)
     output = result.get("output")
     assert output is not None, "No output received from BGE-M3 agent."
     embedding_vector = output.get("embedding")
@@ -86,13 +105,14 @@ def test_real_bge_m3_agent(docker_stack):
     print(f"[E2E] BGE-M3 test passed. Embedding dimension: {len(embedding_vector)}")
 
 
-def test_real_gemma_agent(docker_stack):
+def test_real_gemma_agent(docker_stack, tenant_auth):
     """Test real Gemma 2B agent."""
     assert wait_for_api_ready(), "API service did not become ready in time."
     test_prompt = "What is the capital of France? Answer in one word."
     result = submit_task_and_wait(
         agent_name="gemma-2b",
-        payload={"prompt": test_prompt, "max_tokens": 10}
+        payload={"prompt": test_prompt, "max_tokens": 10},
+        headers=tenant_auth,
     )
     output = result.get("output")
     assert output is not None, "No output received from Gemma agent."

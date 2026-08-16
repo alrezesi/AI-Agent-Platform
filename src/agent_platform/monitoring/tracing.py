@@ -1,13 +1,12 @@
 
 # Distributed tracing with OpenTelemetry-style spans
 
-import uuid
-import time
 import logging
-from typing import Optional, Dict, Any, List
-from dataclasses import dataclass, field
-from datetime import datetime
+import time
+import uuid
 from contextvars import ContextVar
+from dataclasses import dataclass, field
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -24,18 +23,18 @@ class TraceSpan:
     span_id: str
     trace_id: str
     name: str
-    parent_span_id: Optional[str] = None
+    parent_span_id: str | None = None
     start_time: float = field(default_factory=time.perf_counter)
-    end_time: Optional[float] = None
-    attributes: Dict[str, Any] = field(default_factory=dict)
-    events: List[Dict[str, Any]] = field(default_factory=list)
+    end_time: float | None = None
+    attributes: dict[str, Any] = field(default_factory=dict)
+    events: list[dict[str, Any]] = field(default_factory=list)
     status: str = "ok"  # ok, error, unknown
 
     def end(self) -> None:
         """End the span."""
         self.end_time = time.perf_counter()
 
-    def add_event(self, name: str, attributes: Optional[Dict[str, Any]] = None) -> None:
+    def add_event(self, name: str, attributes: dict[str, Any] | None = None) -> None:
         """Add an event to the span."""
         self.events.append({
             "name": name,
@@ -58,7 +57,7 @@ class TraceSpan:
             return (self.end_time - self.start_time) * 1000
         return (time.perf_counter() - self.start_time) * 1000
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "span_id": self.span_id,
@@ -87,16 +86,16 @@ class Tracer:
     Distributed tracer that creates and manages spans.
     """
 
-    def __init__(self, config: Optional[TracingConfig] = None):
+    def __init__(self, config: TracingConfig | None = None):
         self.config = config or TracingConfig()
-        self._spans: List[TraceSpan] = []
+        self._spans: list[TraceSpan] = []
         self._max_spans = self.config.max_spans
 
     def start_span(
         self,
         name: str,
-        parent_span: Optional[TraceSpan] = None,
-        attributes: Optional[Dict[str, Any]] = None,
+        parent_span: TraceSpan | None = None,
+        attributes: dict[str, Any] | None = None,
     ) -> TraceSpan:
         """
         Start a new span.
@@ -122,7 +121,7 @@ class Tracer:
 
         return span
 
-    def get_current_span(self) -> Optional[TraceSpan]:
+    def get_current_span(self) -> TraceSpan | None:
         """Get the current span from context."""
         return _current_span.get()
 
@@ -130,7 +129,7 @@ class Tracer:
         """End a span."""
         span.end()
 
-    def get_all_spans(self) -> List[Dict[str, Any]]:
+    def get_all_spans(self) -> list[dict[str, Any]]:
         """Get all spans as dictionaries."""
         return [s.to_dict() for s in self._spans]
 
@@ -138,6 +137,6 @@ class Tracer:
         """Clear all spans."""
         self._spans.clear()
 
-    def get_trace(self, trace_id: str) -> List[Dict[str, Any]]:
+    def get_trace(self, trace_id: str) -> list[dict[str, Any]]:
         """Get all spans for a specific trace."""
         return [s.to_dict() for s in self._spans if s.trace_id == trace_id]

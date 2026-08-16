@@ -3,12 +3,11 @@
 
 import asyncio
 import logging
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
-from .models import TenantResourceUsage
 from .exceptions import TenantQuotaExceededError
 from .manager import TenantManager
+from .models import TenantResourceUsage
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +54,7 @@ class QuotaChecker:
             return False
 
         async with self._lock:
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             if tenant_id not in self._message_counts:
                 self._message_counts[tenant_id] = []
             # Clean old entries (older than 1 second)
@@ -90,7 +89,7 @@ class QuotaChecker:
         async with self._lock:
             self._usage[tenant_id] = usage
 
-    async def get_usage(self, tenant_id: str) -> Optional[TenantResourceUsage]:
+    async def get_usage(self, tenant_id: str) -> TenantResourceUsage | None:
         """Get current resource usage for a tenant."""
         return self._usage.get(tenant_id)
 

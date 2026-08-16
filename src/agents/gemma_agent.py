@@ -2,14 +2,13 @@
 # Gemma 2 2B text generation agent
 
 import logging
+import os
 from typing import Any
-from pathlib import Path
-from src.agent_platform.core.agent import BaseAgent, AgentRuntimeState
+
+from src.agent_platform.core.agent import AgentRuntimeState, BaseAgent
 from src.agent_platform.core.task import Task
 
 logger = logging.getLogger(__name__)
-
-import os
 
 GEMMA_MODEL_PATH = os.getenv(
     "GEMMA_MODEL_PATH",
@@ -26,7 +25,7 @@ class GemmaAgent(BaseAgent):
 
     async def initialize(self) -> None:
         logger.info(f"Loading Gemma from: {self.model_path}")
-        from transformers import AutoTokenizer, AutoModelForCausalLM
+        from transformers import AutoModelForCausalLM, AutoTokenizer
         self._tokenizer = AutoTokenizer.from_pretrained(self.model_path)
         self._model = AutoModelForCausalLM.from_pretrained(
             self.model_path,

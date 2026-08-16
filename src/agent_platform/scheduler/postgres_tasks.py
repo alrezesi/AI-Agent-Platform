@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
-from sqlalchemy import DateTime, Index, Integer, JSON, String
+from sqlalchemy import JSON, DateTime, Index, Integer, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from src.agent_platform.core.task import Task, TaskPriority, TaskStatus
+
+# postgres_tasks.py
+from src.agent_platform.registry.postgres_registry import utcnow_naive
 
 
 class Base(DeclarativeBase):
@@ -28,20 +31,20 @@ class TaskORM(Base):
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     priority: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
-    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    result: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
-    error: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow_naive)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str | None] = mapped_column(String, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
-    tenant_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
-    lease_owner: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    lease_owner: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     @classmethod
-    def from_task(cls, task: Task) -> "TaskORM":
+    def from_task(cls, task: Task) -> TaskORM:
         return cls(
             task_id=task.task_id,
             agent_id=task.agent_id,
@@ -49,9 +52,9 @@ class TaskORM(Base):
             payload=task.payload,
             priority=int(task.priority.value),
             status=task.status.value,
-            created_at=task.created_at,
-            started_at=task.started_at,
-            completed_at=task.completed_at,
+            created_at=_to_naive_utc(task.created_at),
+            started_at=_to_naive_utc(task.started_at),
+            completed_at=_to_naive_utc(task.completed_at),
             result=_normalize_json(task.result),
             error=task.error,
             retry_count=task.retry_count,
@@ -68,9 +71,9 @@ class TaskORM(Base):
             payload=self.payload or {},
             priority=TaskPriority(self.priority),
             status=TaskStatus(self.status),
-            created_at=self.created_at,
-            started_at=self.started_at,
-            completed_at=self.completed_at,
+            created_at=_to_aware_utc(self.created_at),
+            started_at=_to_aware_utc(self.started_at),
+            completed_at=_to_aware_utc(self.completed_at),
             result=self.result,
             error=self.error,
             retry_count=self.retry_count,
@@ -89,3 +92,19 @@ def _normalize_json(value: Any) -> Any:
         return json.loads(json.dumps(value, default=str))
     except Exception:
         return str(value)
+
+
+def _to_naive_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(UTC).replace(tzinfo=None)
+
+
+def _to_aware_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
