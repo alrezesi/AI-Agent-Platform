@@ -38,6 +38,7 @@ jobs:
       TASK_QUEUE_BACKEND: redis
       DISABLE_AUTH: "true"
       PYTHONUNBUFFERED: "1"
+      PRODUCTION_VERIFY_API_URL: http://127.0.0.1:8000
 
     steps:
       - uses: actions/checkout@v4
@@ -51,6 +52,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      - name: Prepare report directory
+        run: mkdir -p reports
+
       - name: Lint
         run: ruff check src tests scripts
 
@@ -58,20 +62,25 @@ jobs:
         run: mypy src scripts
 
       - name: Unit tests
-        run: pytest tests/unit -m "not integration and not e2e and not chaos" --cov=src/agent_platform --cov-report=xml --cov-report=term-missing
+        run: pytest tests/unit -m "not integration and not e2e and not chaos" --junitxml=reports/unit.xml --cov=src/agent_platform --cov-report=xml --cov-report=term-missing
 
       - name: Integration tests
-        run: pytest tests/integration --cov-append --cov=src/agent_platform --cov-report=term-missing
+        run: pytest tests/integration --junitxml=reports/integration.xml --cov-append --cov=src/agent_platform --cov-report=term-missing
 
       - name: Build Docker image
         run: docker build -t ai-agent-platform:ci .
 
       - name: Start stack
-        run: docker compose up -d --build postgres redis api worker-1 worker-2
+        run: docker compose up -d --build postgres redis api worker-1 worker-2 worker-3 worker-4 worker-5
 
       - name: E2E tests
-        run: pytest tests/e2e tests/chaos/test_integration_e2e.py -m "e2e or chaos" --maxfail=1
+        run: pytest tests/e2e tests/chaos/test_integration_e2e.py --junitxml=reports/e2e.xml -m "e2e or chaos" --maxfail=1
+
+      - name: Chaos verification tests
+        run: pytest tests/chaos/test_production_verification.py --junitxml=reports/chaos.xml --maxfail=1
+
+      - name: Real load test
+        run: python scripts/chaos_load_test.py --tasks 10000 --concurrency 500 --output load_test_results.json
 
       - name: Coverage gate
-        run: python scripts/report_coverage.py --minimum 85
-
+        run: python scripts/report_coverage.py --minimum 85 --coverage-xml coverage.xml --unit-junit reports/unit.xml --integration-junit reports/integration.xml --e2e-junit reports/e2e.xml --chaos-junit reports/chaos.xml --load-json load_test_results.json --output CHAOS_TEST_REPORT.md

@@ -73,6 +73,60 @@ services:
     networks:
       - chaos_net
 
+  worker3:
+    image: ai-agent-platform:chaos
+    container_name: chaos_worker3
+    command: python scripts/run_worker.py --node-id worker3 --port 8003
+    environment:
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/agent_platform
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    networks:
+      - chaos_net
+
+  worker4:
+    image: ai-agent-platform:chaos
+    container_name: chaos_worker4
+    command: python scripts/run_worker.py --node-id worker4 --port 8004
+    environment:
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/agent_platform
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    networks:
+      - chaos_net
+
+  worker5:
+    image: ai-agent-platform:chaos
+    container_name: chaos_worker5
+    command: python scripts/run_worker.py --node-id worker5 --port 8005
+    environment:
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/agent_platform
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    networks:
+      - chaos_net
+
   worker2:
     image: ai-agent-platform:chaos
     container_name: chaos_worker2

@@ -18,7 +18,13 @@ API_URL = "http://localhost:8000"
 REDIS_URL = "redis://localhost:6379/1"
 DEFAULT_TASKS = 10_000
 DEFAULT_CONCURRENCY = 500
-WORKER_CONTAINERS = ["agent_platform_worker_1", "agent_platform_worker_2"]
+WORKER_CONTAINERS = [
+    "agent_platform_worker_1",
+    "agent_platform_worker_2",
+    "agent_platform_worker_3",
+    "agent_platform_worker_4",
+    "agent_platform_worker_5",
+]
 
 
 @dataclass
@@ -176,4 +182,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
