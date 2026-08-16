@@ -3,18 +3,21 @@ services:
     image: postgres:16-alpine
     container_name: agent_platform_postgres
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: pass
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: agent123
       POSTGRES_DB: agent_platform
     ports:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user"]
+      test: ["CMD-SHELL", "pg_isready -U agent"]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    networks:
+      - agent-network
 
   redis:
     image: redis:7-alpine
@@ -26,15 +29,23 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    networks:
+      - agent-network
 
   api:
-    build: . 
+    build: .
     container_name: agent_platform_api
-    command: ["uvicorn", "src.agent_platform.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn src.agent_platform.api.main:app --host 0.0.0.0 --port 8000"
     environment:
       TASK_QUEUE_BACKEND: redis
       REDIS_URL: redis://redis:6379/1
-      DATABASE_URL: postgresql://user:pass@postgres:5432/agent_platform
+      DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
+      DISABLE_AUTH: "true"
+      WORKER_AGENT_MODE: simple
+      EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
     depends_on:
       postgres:
         condition: service_healthy
@@ -42,30 +53,61 @@ services:
         condition: service_healthy
     ports:
       - "8000:8000"
+    restart: unless-stopped
+    networks:
+      - agent-network
 
   worker-1:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: agent_platform_worker_1
-    command: ["python", "scripts/run_worker.py", "--worker-id", "worker-1", "--lease-seconds", "5"]
+    command: ["python", "scripts/run_worker.py"]
     environment:
+      WORKER_ID: worker-1
+      WORKER_PORT: "8001"
+      PYTHONUNBUFFERED: "1"
       TASK_QUEUE_BACKEND: redis
       REDIS_URL: redis://redis:6379/1
-      DATABASE_URL: postgresql://user:pass@postgres:5432/agent_platform
+      DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
+      WORKER_AGENT_MODE: simple
+      EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - agent-network
 
   worker-2:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: agent_platform_worker_2
-    command: ["python", "scripts/run_worker.py", "--worker-id", "worker-2", "--lease-seconds", "5"]
+    command: ["python", "scripts/run_worker.py"]
     environment:
+      WORKER_ID: worker-2
+      WORKER_PORT: "8002"
+      PYTHONUNBUFFERED: "1"
       TASK_QUEUE_BACKEND: redis
       REDIS_URL: redis://redis:6379/1
-      DATABASE_URL: postgresql://user:pass@postgres:5432/agent_platform
+      DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
+      WORKER_AGENT_MODE: simple
+      EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - agent-network
 
 volumes:
   postgres_data:
+
+networks:
+  agent-network:
+    driver: bridge

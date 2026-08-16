@@ -1,6 +1,7 @@
 
 # BGE-M3 embedding agent
 
+import os
 import logging
 from typing import Any
 from pathlib import Path
@@ -10,7 +11,10 @@ from src.agent_platform.core.task import Task
 logger = logging.getLogger(__name__)
 
 
-BGE_MODEL_PATH = r"C:\Users\Alireza\.cache\huggingface\hub\models--BAAI--bge-m3\snapshots\5617a9f61b028005a4858fdac845db406aefb181"
+BGE_MODEL_PATH = os.getenv(
+    "BGE_MODEL_PATH",
+    "BAAI/bge-m3",
+)
 
 class BGEM3Agent(BaseAgent):
     def __init__(self, model_path: str = None, device: str = "cpu", **kwargs):

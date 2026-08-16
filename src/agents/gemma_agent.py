@@ -9,7 +9,12 @@ from src.agent_platform.core.task import Task
 
 logger = logging.getLogger(__name__)
 
-GEMMA_MODEL_PATH = r"C:\Users\Alireza\.cache\huggingface\hub\models--google--gemma-2-2b\snapshots\299a8560bedf22ed1c72a8a11e7dce4a7f9f51f8"
+import os
+
+GEMMA_MODEL_PATH = os.getenv(
+    "GEMMA_MODEL_PATH",
+    "google/gemma-2-2b-it",
+)
 
 class GemmaAgent(BaseAgent):
     def __init__(self, model_path: str = None, device: str = "cpu", **kwargs):

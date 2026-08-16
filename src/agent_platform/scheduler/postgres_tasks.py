@@ -1,4 +1,3 @@
-# PostgreSQL task state persistence for the scheduler.
 
 from __future__ import annotations
 

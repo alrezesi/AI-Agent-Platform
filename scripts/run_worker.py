@@ -1,144 +1,305 @@
-# Worker node runner for Chaos Engineering tests
-
 import asyncio
-import argparse
 import logging
-import sys
 import os
-from pathlib import Path
-
-# Add project root to Python path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+from typing import Dict
 
 from redis.asyncio import Redis
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
-from src.agent_platform.core.agent import AgentRecord, AgentStatus, AgentCapability, BaseAgent
-from src.agent_platform.distributed.registry import DistributedRegistry
-from src.agent_platform.distributed.queue import DistributedTaskQueue
-from src.agent_platform.distributed.worker import WorkerNode, WorkerConfig
+from src.agent_platform.core.agent import (
+    AgentRecord,
+    AgentStatus,
+    AgentCapability,
+    BaseAgent,
+)
 from src.agent_platform.distributed.node import NodeInfo
-from src.agent_platform.core.task import Task
+from src.agent_platform.distributed.queue import DistributedTaskQueue
+from src.agent_platform.distributed.registry import DistributedRegistry
+from src.agent_platform.distributed.worker import WorkerNode
+from src.agent_platform.distributed.worker import WorkerConfig
 
-# Import real agents
-from src.agents import BGEM3Agent, GemmaAgent
-from src.agents.bge_m3_agent import BGE_MODEL_PATH
-from src.agents.gemma_agent import GEMMA_MODEL_PATH
+from src.agent_platform.agents.simple import SimpleTaskAgent
+from src.agents.bge_m3_agent import BGEM3Agent
+from src.agents.gemma_agent import GemmaAgent
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+
 logger = logging.getLogger(__name__)
 
 
-class EchoAgent(BaseAgent):
-    """Simple Echo agent for testing."""
-    async def initialize(self) -> None:
-        self._initialized = True
-        self.state = AgentRuntimeState.RUNNING  # noqa: F821
-        logger.info(f"EchoAgent {self.agent_id} initialized")
+class RuntimeAgentRegistry:
+    """
+    Registry used by WorkerNode to resolve task agent IDs
+    to actual BaseAgent instances.
 
-    async def run(self, task: Task) -> str:
-        message = task.payload.get("message", "")
-        logger.info(f"EchoAgent {self.agent_id} processing task {task.task_id}: {message}")
-        return f"Echo: {message}"
+    DistributedRegistry stores AgentRecord metadata in Redis,
+    while this registry keeps the executable agent instances
+    in the current worker process.
+    """
 
-    async def shutdown(self) -> None:
-        self._initialized = False
-        logger.info(f"EchoAgent {self.agent_id} shut down")
+    def __init__(self, distributed_registry: DistributedRegistry):
+        self._agents: Dict[str, BaseAgent] = {}
+        self.distributed_registry = distributed_registry
 
+    async def register(self, agent: BaseAgent) -> None:
+        self._agents[agent.agent_id] = agent
 
-async def register_agent(registry, agent_instance):
-    """Register an agent instance in the registry."""
-    record = AgentRecord(
-        agent_id=agent_instance.agent_id,
-        name=agent_instance.name,
-        capabilities=[],
-        status=AgentStatus.ACTIVE,
-        tenant_id=agent_instance.tenant_id,
-    )
-    await registry.register(record)
-    logger.info(f"Agent {agent_instance.agent_id} registered")
-
-
-async def main():
-    """Main worker entry point."""
-    parser = argparse.ArgumentParser(description="Run a Chaos worker node.")
-    parser.add_argument("--node-id", default="worker1", help="Unique node identifier")
-    parser.add_argument("--port", type=int, default=8001, help="Port for node registration")
-    args = parser.parse_args()
-
-    database_url = os.getenv("DATABASE_URL", "postgresql+asyncpg://user:pass@postgres:5432/agent_platform")
-    redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
-
-    logger.info(f"Starting Chaos worker: {args.node_id} on port {args.port}")
-
-    redis_client = Redis.from_url(redis_url)
-    engine = create_async_engine(database_url, echo=False)
-    session_factory = async_sessionmaker(engine)
-
-    registry = DistributedRegistry(redis_client)
-    queue = DistributedTaskQueue(redis_client)
-
-    config = WorkerConfig(
-        max_concurrent_tasks=5,
-        poll_interval=0.5,
-        node_heartbeat_interval=10.0,
-        task_timeout_seconds=30,
-    )
-
-    node_info = NodeInfo.create(port=args.port)
-    node_info.node_id = args.node_id
-
-    worker = WorkerNode(node_info, queue, registry, config)
-    await worker.start()
-
-    # --- Register agents ---
-
-    # 1. EchoAgent (for testing)
-    echo_agent = EchoAgent(agent_id="echo-agent", name="Echo Test Agent", tenant_id=None)
-    await register_agent(registry, echo_agent)
-
-    # 2. BGE-M3 embedding agent
-    try:
-        bge_agent = BGEM3Agent(
-            agent_id="bge-m3",
-            name="BGE-M3 Embedding",
-            model_path=BGE_MODEL_PATH,  # uses default path from agent file
-            device="cpu",               # change to "cuda" if GPU is available
-            tenant_id=None,
+        record = AgentRecord(
+            agent_id=agent.agent_id,
+            name=agent.name,
+            description=f"Runtime agent: {agent.name}",
+            capabilities=self._build_capabilities(agent),
+            status=AgentStatus.ACTIVE,
+            metadata={
+                "worker": os.getenv("WORKER_ID", "worker-1"),
+            },
+            tenant_id=agent.tenant_id,
         )
-        await bge_agent.initialize()
-        await register_agent(registry, bge_agent)
-        logger.info("BGE-M3 agent registered and initialized")
-    except Exception as e:
-        logger.error(f"Failed to initialize BGE-M3 agent: {e}")
 
-    # 3. Gemma 2 2B text generation agent
-    try:
-        gemma_agent = GemmaAgent(
-            agent_id="gemma-2b",
-            name="Gemma 2 2B",
-            model_path=GEMMA_MODEL_PATH,
-            device="cpu",
-            tenant_id=None,
+        await self.distributed_registry.register(record)
+
+        logger.info(
+            "Registered agent: %s (%s)",
+            agent.agent_id,
+            agent.name,
         )
-        await gemma_agent.initialize()
-        await register_agent(registry, gemma_agent)
-        logger.info("Gemma agent registered and initialized")
-    except Exception as e:
-        logger.error(f"Failed to initialize Gemma agent: {e}")
 
-    logger.info("All agents registered. Worker is ready.")
+    async def get_agent(self, agent_id: str, tenant_id=None):
+        agent = self._agents.get(agent_id)
 
-    # Keep the worker running until interrupted
+        if agent is None:
+            return None
+
+        if tenant_id is not None and agent.tenant_id != tenant_id:
+            return None
+
+        return agent
+
+    async def unregister(self, agent_id: str, tenant_id=None) -> bool:
+        agent = self._agents.get(agent_id)
+
+        if agent is None:
+            return False
+
+        if tenant_id is not None and agent.tenant_id != tenant_id:
+            return False
+
+        self._agents.pop(agent_id, None)
+
+        await self.distributed_registry.unregister(
+            agent_id,
+            tenant_id,
+        )
+
+        return True
+
+    async def update_node_status(self, node_info: NodeInfo) -> None:
+        await self.distributed_registry.update_node_status(node_info)
+
+    async def register_node(self, node_info: NodeInfo) -> None:
+        await self.distributed_registry.register_node(node_info)
+
+    @staticmethod
+    def _build_capabilities(agent: BaseAgent):
+        if agent.agent_id == "bge-m3":
+            return [
+                AgentCapability(
+                    name="embedding",
+                    description="Generate BGE-M3 text embeddings",
+                )
+            ]
+
+        if agent.agent_id == "gemma-2b":
+            return [
+                AgentCapability(
+                    name="text-generation",
+                    description="Generate text using Gemma 2 2B",
+                )
+            ]
+
+        return []
+
+
+async def initialize_agents() -> list[BaseAgent]:
+    """
+    Create and initialize all real agents.
+    """
+
+    tenant_id = os.getenv("AGENT_TENANT_ID", "dummy")
+
+    bge_model_path = os.getenv(
+        "BGE_MODEL_PATH",
+        "BAAI/bge-m3",
+    )
+
+    gemma_model_path = os.getenv(
+        "GEMMA_MODEL_PATH",
+        "google/gemma-2-2b-it",
+    )
+
+    mode = os.getenv("WORKER_AGENT_MODE", "simple").strip().lower()
+    if mode == "simple":
+        agents: list[BaseAgent] = [
+            SimpleTaskAgent(
+                agent_id="default-agent",
+                name="Default Agent",
+                tenant_id=tenant_id,
+            )
+        ]
+    else:
+        agents = [
+            BGEM3Agent(
+                agent_id="bge-m3",
+                name="BGE-M3",
+                tenant_id=tenant_id,
+                model_path=bge_model_path,
+                device=os.getenv("BGE_DEVICE", "cpu"),
+            ),
+            GemmaAgent(
+                agent_id="gemma-2b",
+                name="Gemma 2B",
+                tenant_id=tenant_id,
+                model_path=gemma_model_path,
+                device=os.getenv("GEMMA_DEVICE", "cpu"),
+            ),
+        ]
+
+    for agent in agents:
+        logger.info(
+            "Initializing agent %s...",
+            agent.agent_id,
+        )
+
+        await agent.initialize()
+
+        if not agent.is_ready():
+            raise RuntimeError(
+                f"Agent {agent.agent_id} failed to initialize"
+            )
+
+        logger.info(
+            "Agent %s initialized successfully",
+            agent.agent_id,
+        )
+
+    return agents
+
+
+async def main() -> None:
+    worker_id = os.getenv(
+        "WORKER_ID",
+        "worker-1",
+    )
+
+    redis_url = os.getenv(
+        "REDIS_URL",
+        "redis://redis:6379",
+    )
+
+    worker_port = int(
+        os.getenv(
+            "WORKER_PORT",
+            "8001",
+        )
+    )
+
+    logger.info("Starting worker %s", worker_id)
+    logger.info("Redis URL: %s", redis_url)
+
+    redis = Redis.from_url(
+        redis_url,
+        decode_responses=False,
+    )
+
     try:
-        await asyncio.Event().wait()
-    except KeyboardInterrupt:
-        logger.info("Shutting down worker...")
-        await worker.stop()
-        await redis_client.close()
-        await engine.dispose()
-        logger.info("Worker stopped.")
+        await redis.ping()
+        logger.info("Redis connection established")
+
+        queue = DistributedTaskQueue(
+            redis_client=redis,
+        )
+
+        distributed_registry = DistributedRegistry(
+            redis_client=redis,
+        )
+
+        runtime_registry = RuntimeAgentRegistry(
+            distributed_registry=distributed_registry,
+        )
+
+        node_info = NodeInfo.create(
+            port=worker_port,
+            capabilities={
+                "agents": [
+                    "bge-m3",
+                    "gemma-2b",
+                ],
+                "worker_id": worker_id,
+            },
+        )
+
+        node_info.node_id = worker_id
+
+        await runtime_registry.register_node(node_info)
+
+        agents = await initialize_agents()
+
+        for agent in agents:
+            await runtime_registry.register(agent)
+
+        worker = WorkerNode(
+            info=node_info,
+            queue=queue,
+            agent_registry=runtime_registry,
+            config=WorkerConfig(
+                max_concurrent_tasks=int(os.getenv("WORKER_MAX_CONCURRENT_TASKS", "1")),
+                poll_interval=float(os.getenv("WORKER_POLL_INTERVAL", "0.5")),
+                node_heartbeat_interval=float(os.getenv("WORKER_HEARTBEAT_INTERVAL", "2.0")),
+                task_timeout_seconds=int(os.getenv("WORKER_TASK_TIMEOUT_SECONDS", "5")),
+            ),
+        )
+
+        await worker.start()
+        if hasattr(queue, "recover_orphaned_tasks"):
+            await queue.recover_orphaned_tasks()
+
+        logger.info(
+            "Worker %s is running and waiting for tasks...",
+            worker_id,
+        )
+
+        try:
+            while True:
+                await asyncio.sleep(3600)
+
+        except asyncio.CancelledError:
+            logger.info(
+                "Worker %s received cancellation",
+                worker_id,
+            )
+
+        finally:
+            await worker.stop()
+
+            for agent in agents:
+                try:
+                    await agent.shutdown()
+                except Exception:
+                    logger.exception(
+                        "Failed to shutdown agent %s",
+                        agent.agent_id,
+                    )
+
+    finally:
+        await redis.close()
+        logger.info("Redis connection closed")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Worker stopped by user")

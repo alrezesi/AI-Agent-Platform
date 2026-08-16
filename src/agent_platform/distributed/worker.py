@@ -43,12 +43,14 @@ class WorkerNode(Node):
         self._semaphore = asyncio.Semaphore(self.config.max_concurrent_tasks)
         self._heartbeat_task: Optional[asyncio.Task] = None
         self._poll_task: Optional[asyncio.Task] = None
+        self._recovery_task: Optional[asyncio.Task] = None
 
     async def start(self) -> None:
         """Start the worker node."""
         await super().start()
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         self._poll_task = asyncio.create_task(self._poll_loop())
+        self._recovery_task = asyncio.create_task(self._recovery_loop())
         logger.info(f"Worker node {self.info.node_id} started with {self.config.max_concurrent_tasks} concurrent tasks")
 
     async def stop(self) -> None:
@@ -60,6 +62,8 @@ class WorkerNode(Node):
             self._heartbeat_task.cancel()
         if self._poll_task:
             self._poll_task.cancel()
+        if self._recovery_task:
+            self._recovery_task.cancel()
 
         # Wait for all running tasks to complete
         if self._tasks:
@@ -106,6 +110,19 @@ class WorkerNode(Node):
                 break
             except Exception as e:
                 logger.error(f"Error in poll loop: {e}")
+                await asyncio.sleep(1)
+
+    async def _recovery_loop(self) -> None:
+        """Periodically recover tasks after Redis outages or worker loss."""
+        while self._running:
+            try:
+                if hasattr(self.queue, "recover_orphaned_tasks"):
+                    await self.queue.recover_orphaned_tasks()
+                await asyncio.sleep(max(self.config.poll_interval, 1.0))
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in recovery loop: {e}")
                 await asyncio.sleep(1)
 
     async def _execute_task_with_semaphore(self, task: Task) -> None:

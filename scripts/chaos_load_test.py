@@ -1,270 +1,179 @@
-# scripts/chaos_load_test.py
-# Real infrastructure load test using Redis + PostgreSQL + Docker Workers
+from __future__ import annotations
 
-import asyncio
-import time
 import argparse
-import statistics
+import asyncio
 import json
+import statistics
+import subprocess
+import time
+from dataclasses import dataclass, asdict
+from datetime import datetime, timezone
+from pathlib import Path
+
 import httpx
-from datetime import datetime
-from typing import List, Dict, Any
-from collections import defaultdict
+from redis.asyncio import Redis
 
-# Import real queue and scheduler
-from src.agent_platform.scheduler.redis_queue import RedisTaskQueue
-from src.agent_platform.scheduler.scheduler import TaskScheduler
-from src.agent_platform.core.task import Task, TaskPriority
 
-# Redis connection (using the same URL as docker-compose)
-REDIS_URL = "redis://localhost:6379/0"
 API_URL = "http://localhost:8000"
-
-# Test parameters
-DEFAULT_TASKS = 10000
+REDIS_URL = "redis://localhost:6379/1"
+DEFAULT_TASKS = 10_000
 DEFAULT_CONCURRENCY = 500
-DEFAULT_WORKERS = 5
-
-class LoadTestResult:
-    """Container for load test results."""
-    def __init__(self):
-        self.task_ids: List[str] = []
-        self.submit_times: List[float] = []
-        self.completion_times: List[float] = []
-        self.errors: int = 0
-        self.retries: int = 0
-        self.queue_depth: int = 0
-        self.start_time: float = 0.0
-        self.end_time: float = 0.0
-
-    def throughput(self) -> float:
-        """Tasks per second."""
-        if self.end_time == self.start_time:
-            return 0.0
-        return len(self.task_ids) / (self.end_time - self.start_time)
-
-    def latency(self, percentile: float) -> float:
-        """Latency at given percentile (0-1)."""
-        if not self.completion_times:
-            return 0.0
-        sorted_times = sorted(self.completion_times)
-        idx = int(len(sorted_times) * percentile)
-        return sorted_times[idx]
-
-    def p50(self) -> float:
-        return self.latency(0.50)
-
-    def p95(self) -> float:
-        return self.latency(0.95)
-
-    def p99(self) -> float:
-        return self.latency(0.99)
-
-    def error_rate(self) -> float:
-        total = len(self.task_ids) + self.errors
-        if total == 0:
-            return 0.0
-        return self.errors / total
-
-    def retry_rate(self) -> float:
-        total = len(self.task_ids)
-        if total == 0:
-            return 0.0
-        return self.retries / total
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "total_tasks": len(self.task_ids),
-            "errors": self.errors,
-            "retries": self.retries,
-            "throughput": self.throughput(),
-            "p50_latency": self.p50(),
-            "p95_latency": self.p95(),
-            "p99_latency": self.p99(),
-            "error_rate": self.error_rate(),
-            "retry_rate": self.retry_rate(),
-            "max_queue_depth": self.queue_depth,
-            "elapsed": self.end_time - self.start_time,
-        }
+WORKER_CONTAINERS = ["agent_platform_worker_1", "agent_platform_worker_2"]
 
 
-async def submit_task(client: httpx.AsyncClient, agent_id: str, payload: dict, task_id: str = None) -> str:
-    """
-    Submit a single task via the API.
-    Returns the task_id.
-    """
-    request_body = {
-        "agent_id": agent_id,
-        "task_type": "echo",  # We'll use echo-agent for simplicity; can be extended
-        "payload": payload,
-        "priority": 1,  # HIGH
-        "timeout_seconds": 30,
-        "max_retries": 1,
-    }
-    if task_id:
-        request_body["task_id"] = task_id  # For idempotency test
-
-    start = time.time()
-    resp = await client.post(f"{API_URL}/tasks/", json=request_body)
-    elapsed = time.time() - start
-    if resp.status_code != 200:
-        raise Exception(f"Submit failed: {resp.text}")
-    data = resp.json()
-    return data["task_id"], elapsed
+@dataclass
+class LoadMetrics:
+    throughput: float
+    p50: float
+    p95: float
+    p99: float
+    error_rate: float
+    retry_rate: float
+    queue_depth: int
+    cpu: dict
+    memory: dict
+    redis_latency_ms: float
+    postgres_latency_ms: float
 
 
-async def poll_task(client: httpx.AsyncClient, task_id: str, timeout: float = 30.0) -> Dict:
-    """
-    Poll a task until completion or timeout.
-    Returns the final task data.
-    """
-    start = time.time()
-    while time.time() - start < timeout:
-        resp = await client.get(f"{API_URL}/tasks/{task_id}")
-        if resp.status_code == 200:
-            data = resp.json()
-            status = data.get("status")
-            if status in ("completed", "failed", "cancelled", "timeout"):
-                return data
-        await asyncio.sleep(0.2)
-    raise TimeoutError(f"Task {task_id} did not complete within {timeout}s")
+def _percentile(values: list[float], pct: float) -> float:
+    if not values:
+        return 0.0
+    values = sorted(values)
+    index = min(int(round((len(values) - 1) * pct)), len(values) - 1)
+    return values[index]
 
 
-async def single_task_flow(client: httpx.AsyncClient, task_id: str, payload: dict) -> tuple:
-    """
-    Submit and wait for a single task.
-    Returns (success, duration, retry_count, error_msg).
-    """
-    try:
-        submit_start = time.time()
-        tid, _ = await submit_task(client, "echo-agent", payload, task_id)
-        result = await poll_task(client, tid)
-        duration = time.time() - submit_start
-        if result.get("status") == "completed":
-            return True, duration, result.get("retry_count", 0), None
-        else:
-            return False, duration, result.get("retry_count", 0), result.get("error", "Unknown error")
-    except Exception as e:
-        return False, 0.0, 0, str(e)
+async def _ping_redis(redis: Redis, samples: int = 20) -> float:
+    timings = []
+    for _ in range(samples):
+        start = time.perf_counter()
+        await redis.ping()
+        timings.append((time.perf_counter() - start) * 1000.0)
+        await asyncio.sleep(0.05)
+    return statistics.mean(timings)
 
 
-async def run_load_test(total_tasks: int, concurrency: int, workers: int) -> LoadTestResult:
-    """
-    Run the load test with the given parameters.
-    """
-    print(f"🚀 Starting load test: {total_tasks} tasks, {concurrency} concurrent, {workers} workers")
-    result = LoadTestResult()
-    result.start_time = time.time()
-
-    semaphore = asyncio.Semaphore(concurrency)
-    client = httpx.AsyncClient(timeout=30.0)
-
-    # We'll use a simple echo payload for all tasks
-    base_payload = {"message": "Load test task"}
-
-    tasks = []
-    for i in range(total_tasks):
-        # Generate a unique task_id (for idempotency we could reuse, but here we want unique)
-        task_id = f"loadtest-{i:05d}"
-        payload = base_payload.copy()
-        payload["task_id"] = task_id  # Not used by echo, but for tracking
-
-        async def bounded_submit(tid=task_id, pl=payload):
-            async with semaphore:
-                success, duration, retry, error = await single_task_flow(client, tid, pl)
-                if success:
-                    result.task_ids.append(tid)
-                    result.completion_times.append(duration)
-                else:
-                    result.errors += 1
-                result.retries += retry
-
-        tasks.append(bounded_submit)
-
-    # Monitor queue depth (approximate) from Redis
-    # We'll run a separate coroutine to sample queue depth
-    queue_depth_samples = []
-    async def monitor_queue():
-        from redis.asyncio import Redis
-        redis = Redis.from_url(REDIS_URL)
-        while True:
-            try:
-                depth = await redis.zcard("tasks:queue")
-                queue_depth_samples.append(depth)
-            except Exception:
-                pass
-            await asyncio.sleep(0.1)
-
-    monitor_task = asyncio.create_task(monitor_queue())
-
-    # Execute all tasks concurrently
-    await asyncio.gather(*tasks)
-
-    # Stop monitoring
-    monitor_task.cancel()
-    try:
-        await monitor_task
-    except asyncio.CancelledError:
-        pass
-
-    result.end_time = time.time()
-    if queue_depth_samples:
-        result.queue_depth = max(queue_depth_samples)
-
-    await client.aclose()
-    return result
+async def _ping_postgres(client: httpx.AsyncClient, samples: int = 20) -> float:
+    timings = []
+    for _ in range(samples):
+        start = time.perf_counter()
+        resp = await client.get(f"{API_URL}/health")
+        resp.raise_for_status()
+        timings.append((time.perf_counter() - start) * 1000.0)
+        await asyncio.sleep(0.05)
+    return statistics.mean(timings)
 
 
-async def main():
-    parser = argparse.ArgumentParser(description="Real load test with Redis+PostgreSQL")
-    parser.add_argument("--tasks", type=int, default=DEFAULT_TASKS, help="Number of tasks")
-    parser.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY, help="Concurrent requests")
-    parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS, help="Number of workers (for info)")
+def _docker_stats() -> tuple[dict, dict]:
+    cmd = [
+        "docker",
+        "stats",
+        "--no-stream",
+        "--format",
+        "{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}",
+        *WORKER_CONTAINERS,
+    ]
+    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    cpu = {}
+    memory = {}
+    for line in result.stdout.splitlines():
+        name, cpu_perc, mem_usage = line.split("|", 2)
+        cpu[name] = cpu_perc.strip()
+        memory[name] = mem_usage.strip()
+    return cpu, memory
+
+
+async def _submit_and_wait(client: httpx.AsyncClient, task_id: str) -> tuple[float, int]:
+    started = time.perf_counter()
+    response = await client.post(
+        "/tasks/",
+        json={
+            "task_id": task_id,
+            "agent_id": "default-agent",
+            "task_type": "load",
+            "payload": {"message": "load-test", "delay_seconds": 0.01},
+            "timeout_seconds": 30,
+            "max_retries": 1,
+        },
+    )
+    response.raise_for_status()
+
+    while True:
+        task = await client.get(f"/tasks/{task_id}")
+        task.raise_for_status()
+        body = task.json()
+        if body["status"] in {"completed", "failed", "timeout", "cancelled"}:
+            break
+        await asyncio.sleep(0.05)
+
+    elapsed = time.perf_counter() - started
+    return elapsed, int(body.get("retry_count", 0))
+
+
+async def run_load(total_tasks: int, concurrency: int) -> LoadMetrics:
+    sem = asyncio.Semaphore(concurrency)
+    durations: list[float] = []
+    retries = 0
+    errors = 0
+
+    async with httpx.AsyncClient(base_url=API_URL, timeout=60.0, trust_env=False) as client:
+        redis = Redis.from_url(REDIS_URL, decode_responses=True)
+
+        async def worker(index: int) -> None:
+            nonlocal retries, errors
+            async with sem:
+                try:
+                    duration, retry_count = await _submit_and_wait(client, f"load-{index:05d}")
+                    durations.append(duration)
+                    retries += retry_count
+                except Exception:
+                    errors += 1
+
+        start = time.perf_counter()
+        await asyncio.gather(*[worker(i) for i in range(total_tasks)])
+        elapsed = time.perf_counter() - start
+
+        cpu, memory = _docker_stats()
+        queue_depth = int(await redis.zcard("tasks:queue"))
+        redis_latency = await _ping_redis(redis)
+        postgres_latency = await _ping_postgres(client)
+        await redis.aclose()
+
+    return LoadMetrics(
+        throughput=total_tasks / elapsed if elapsed else 0.0,
+        p50=_percentile(durations, 0.50),
+        p95=_percentile(durations, 0.95),
+        p99=_percentile(durations, 0.99),
+        error_rate=(errors / total_tasks) if total_tasks else 0.0,
+        retry_rate=(retries / total_tasks) if total_tasks else 0.0,
+        queue_depth=queue_depth,
+        cpu=cpu,
+        memory=memory,
+        redis_latency_ms=redis_latency,
+        postgres_latency_ms=postgres_latency,
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--tasks", type=int, default=DEFAULT_TASKS)
+    parser.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY)
+    parser.add_argument("--output", type=Path, default=Path("load_test_results.json"))
     args = parser.parse_args()
 
-    # Ensure the API is available
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(f"{API_URL}/health")
-            if resp.status_code != 200:
-                print("❌ API not healthy. Make sure docker-compose is up.")
-                return
-    except Exception:
-        print("❌ Cannot connect to API. Make sure docker-compose is up.")
-        return
-
-    print(f"✅ API is healthy. Starting load test...")
-
-    result = await run_load_test(args.tasks, args.concurrency, args.workers)
-
-    # Output results
-    print("\n📊 Load Test Results:")
-    print(f"  Total tasks:         {len(result.task_ids)}")
-    print(f"  Errors:              {result.errors}")
-    print(f"  Retries:             {result.retries}")
-    print(f"  Throughput:          {result.throughput():.2f} tasks/sec")
-    print(f"  Latency p50:         {result.p50():.4f} s")
-    print(f"  Latency p95:         {result.p95():.4f} s")
-    print(f"  Latency p99:         {result.p99():.4f} s")
-    print(f"  Error rate:          {result.error_rate():.2%}")
-    print(f"  Retry rate:          {result.retry_rate():.2%}")
-    print(f"  Max queue depth:     {result.queue_depth}")
-    print(f"  Elapsed:             {result.end_time - result.start_time:.2f} s")
-
-    # Save results to JSON file for reporting
-    output = {
-        "timestamp": datetime.utcnow().isoformat(),
-        "parameters": {
-            "tasks": args.tasks,
-            "concurrency": args.concurrency,
-            "workers": args.workers,
-        },
-        "results": result.to_dict()
+    metrics = asyncio.run(run_load(args.tasks, args.concurrency))
+    payload = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "tasks": args.tasks,
+        "concurrency": args.concurrency,
+        "metrics": asdict(metrics),
     }
-    with open("load_test_results.json", "w") as f:
-        json.dump(output, f, indent=2)
-    print(f"\n📁 Results saved to load_test_results.json")
+    args.output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    print(json.dumps(payload, indent=2))
+    return 0
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    raise SystemExit(main())
+
