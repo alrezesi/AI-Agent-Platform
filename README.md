@@ -122,7 +122,7 @@ Run the full suite:
 pytest tests/ -v --cov=src/agent_platform --cov-report=term --cov-report=html
 ```
 
-Current test coverage: 82% with 151 passing tests.
+CI generates the current coverage, test counts, and load-test metrics in `CHAOS_TEST_REPORT.md`.
 
 ---
 
@@ -170,4 +170,3 @@ ai-agent-platform/
 3. Write tests and implement changes
 4. Make sure the test suite passes
 5. Open a pull request
-
