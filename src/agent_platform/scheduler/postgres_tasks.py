@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import JSON, DateTime, Index, Integer, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -52,7 +52,7 @@ class TaskORM(Base):
             payload=task.payload,
             priority=int(task.priority.value),
             status=task.status.value,
-            created_at=_to_naive_utc(task.created_at),
+            created_at=_to_naive_utc(task.created_at) or datetime.now(UTC).replace(tzinfo=None),
             started_at=_to_naive_utc(task.started_at),
             completed_at=_to_naive_utc(task.completed_at),
             result=_normalize_json(task.result),
@@ -64,6 +64,7 @@ class TaskORM(Base):
         )
 
     def to_task(self) -> Task:
+        created_at = self.created_at or datetime.now(UTC).replace(tzinfo=UTC)
         return Task(
             task_id=self.task_id,
             agent_id=self.agent_id,
@@ -71,7 +72,7 @@ class TaskORM(Base):
             payload=self.payload or {},
             priority=TaskPriority(self.priority),
             status=TaskStatus(self.status),
-            created_at=_to_aware_utc(self.created_at),
+            created_at=cast(datetime, _to_aware_utc(created_at)),
             started_at=_to_aware_utc(self.started_at),
             completed_at=_to_aware_utc(self.completed_at),
             result=self.result,

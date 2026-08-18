@@ -5,7 +5,7 @@ import logging
 import secrets
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from src.agent_platform.security import (
     api_key_record_matches,
@@ -136,7 +136,7 @@ class TenantManager:
         """Load tenant from storage."""
         if not hasattr(self.storage, "_tenants"):
             self.storage._tenants = {}
-        return self.storage._tenants.get(tenant_id)
+        return cast(Tenant | None, self.storage._tenants.get(tenant_id))
 
     async def _list_tenants(
         self,

@@ -74,6 +74,8 @@ class DelegationManager:
             from_agent=request.from_agent,
             to_agent=request.to_agent,
             type=A2AMessageType.DELEGATION_REQUEST,
+            correlation_id=None,
+            tenant_id=None,
             content={
                 "delegation_id": delegation_id,
                 "task_type": request.task_type,
@@ -101,8 +103,11 @@ class DelegationManager:
         Handle an incoming delegation request.
         The receiving agent executes the task and returns a result.
         """
-        content = message.content
-        delegation_id = content.get('delegation_id')
+        content: dict[str, Any] = message.content
+        raw_delegation_id = content.get('delegation_id')
+        if not isinstance(raw_delegation_id, str) or not raw_delegation_id:
+            raise DelegationError("Delegation request missing delegation_id")
+        delegation_id: str = raw_delegation_id
         task_type = content.get('task_type')
         task_payload = content.get('task_payload', {})
         session_id = content.get('session_id')
@@ -157,6 +162,8 @@ class DelegationManager:
             from_agent=message.to_agent,
             to_agent=message.from_agent,
             type=A2AMessageType.DELEGATION_RESPONSE,
+            correlation_id=None,
+            tenant_id=None,
             content={
                 "delegation_id": delegation_id,
                 "status": status,
@@ -172,9 +179,13 @@ class DelegationManager:
         """
         Handle a delegation response (result from delegated task).
         """
-        content = message.content
-        delegation_id = content.get('delegation_id')
-        status = content.get('status')
+        content: dict[str, Any] = message.content
+        raw_delegation_id = content.get('delegation_id')
+        delegation_id: str = raw_delegation_id if isinstance(raw_delegation_id, str) else ""
+        if not delegation_id:
+            raise DelegationError("Delegation response missing delegation_id")
+        raw_status = content.get('status')
+        status: str = raw_status if isinstance(raw_status, str) else "failed"
         result = content.get('result')
         error = content.get('error')
 

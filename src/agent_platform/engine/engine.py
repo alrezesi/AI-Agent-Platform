@@ -72,6 +72,11 @@ class AgentEngine:
         self._agents[agent_id] = agent
         self._semaphores[agent_id] = asyncio.Semaphore(self.max_concurrent_tasks_per_agent)
 
+        # Create a dedicated task queue for this agent.
+        agent._task_queue = asyncio.Queue()
+
+        agent._task_queue = asyncio.Queue()
+
         # Register with the central registry
         from src.agent_platform.core.agent import AgentRecord, AgentStatus
         record = AgentRecord(
@@ -201,8 +206,15 @@ class AgentEngine:
 
                 # Acquire semaphore to respect concurrency limit
                 # Create a queue for this agent if not exists
-                if not hasattr(agent, '_task_queue'):
-                    agent._task_queue = asyncio.Queue()
+                if agent._task_queue is None:
+                    logger.error(
+                        "Agent %s has no task queue",
+                        agent_id,
+                    )
+                    task.status = TaskStatus.FAILED
+                    task.error = f"Agent {agent_id} task queue is not initialized"
+                    await self.scheduler.on_task_completed(task)
+                    continue
 
                 await agent._task_queue.put(task)
 
@@ -226,7 +238,7 @@ class AgentEngine:
         while self._running and agent_id in self._agents:
             try:
                 # Check if agent has a task queue
-                if not hasattr(agent, '_task_queue'):
+                if agent._task_queue is None:
                     await asyncio.sleep(0.5)
                     continue
 

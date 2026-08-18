@@ -57,7 +57,8 @@ class BaseAgent(ABC):
         self.name = name
         self.tenant_id = tenant_id
         self.state = AgentRuntimeState.IDLE
-        self.context = None  # Will be set during initialization
+        self.context: Any = None  # Will be set during initialization
+        self._task_queue: Any = None
         self._initialized = False
 
     @abstractmethod

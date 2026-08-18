@@ -1,4 +1,5 @@
-# Use Python 3.13 slim image based on Debian 12 (bookworm) – stable and reliable
+# syntax=docker/dockerfile:1.7
+
 FROM python:3.13-slim-bookworm
 
 WORKDIR /app
@@ -9,21 +10,14 @@ RUN apt-get update \
         libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy pyproject.toml and install Python dependencies (including dev extras)
-COPY pyproject.toml .
-RUN pip install --no-cache-dir -e ".[dev]"
+COPY pyproject.toml README.md ./
 
-# Copy the rest of the application code
-COPY src/ ./src/
-COPY scripts/ ./scripts/
-COPY tests/ ./tests/
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip \
+    && pip install -e ".[dev]"
 
-# Copy Alembic configuration and migration files
-COPY alembic.ini .
-COPY migrations ./migrations
+COPY . .
 
-# Set Python path
 ENV PYTHONPATH=/app
 
-# Default command (overridden in docker-compose.yml)
 CMD ["uvicorn", "src.agent_platform.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

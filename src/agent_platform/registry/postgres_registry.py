@@ -98,7 +98,7 @@ class PostgresAgentRegistry(BaseAgentRegistry):
                 stmt = stmt.where(AgentORM.tenant_id == tenant_id)
             result = await session.execute(stmt)
             await session.commit()
-            return result.rowcount > 0
+            return int(getattr(result, "rowcount", 0) or 0) > 0
 
     async def get_agent(self, agent_id: str, tenant_id: str | None = None) -> AgentRecord | None:
         async with self.session_factory() as session:
@@ -122,7 +122,7 @@ class PostgresAgentRegistry(BaseAgentRegistry):
                 stmt = stmt.where(AgentORM.tenant_id == tenant_id)
             result = await session.execute(stmt)
             await session.commit()
-            return result.rowcount > 0
+            return int(getattr(result, "rowcount", 0) or 0) > 0
 
     async def discover(
         self,
@@ -174,4 +174,4 @@ class PostgresAgentRegistry(BaseAgentRegistry):
             stmt = delete(AgentORM).where(AgentORM.last_heartbeat < cutoff)
             result = await session.execute(stmt)
             await session.commit()
-            return result.rowcount
+            return int(getattr(result, "rowcount", 0) or 0)

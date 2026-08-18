@@ -120,7 +120,7 @@ class ContextSharingManager:
         """
         session_id = shared_data.get('session_id')
         if not session_id:
-            return None
+            return ""
         # Create or update context with shared data
         if session_id in self._contexts:
             context = self._contexts[session_id]
@@ -134,7 +134,7 @@ class ContextSharingManager:
                 history=shared_data.get('history', []),
             )
             self._contexts[session_id] = context
-        return session_id
+        return str(session_id)
 
     def delete_context(self, session_id: str) -> bool:
         """Delete a context."""

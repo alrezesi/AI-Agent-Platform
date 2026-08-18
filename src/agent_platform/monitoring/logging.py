@@ -59,7 +59,7 @@ class LogManager:
     """
 
     def __init__(self, log_to_file: bool = False, log_file_path: str = "logs/app.log"):
-        self._handlers = []
+        self._handlers: list[logging.Handler] = []
         self.log_to_file = log_to_file
         self.log_file_path = log_file_path
 

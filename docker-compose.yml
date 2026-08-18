@@ -44,7 +44,6 @@ services:
       REDIS_URL: redis://redis:6379/1
       DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
       DISABLE_AUTH: "true"
-      WORKER_AGENT_MODE: simple
       EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
     depends_on:
       postgres:
@@ -70,8 +69,15 @@ services:
       TASK_QUEUE_BACKEND: redis
       REDIS_URL: redis://redis:6379/1
       DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
-      WORKER_AGENT_MODE: simple
       EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
+      BGE_MODEL_PATH: /app/models/bge-m3
+      GEMMA_MODEL_PATH: /app/models/gemma-2-2b-it
+      PERSIANPHI_MODEL_PATH: /app/models/PersianPhi
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /app/models
+    volumes:
+      - "./models:/app/models"
     depends_on:
       postgres:
         condition: service_healthy
@@ -94,80 +100,15 @@ services:
       TASK_QUEUE_BACKEND: redis
       REDIS_URL: redis://redis:6379/1
       DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
-      WORKER_AGENT_MODE: simple
       EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - agent-network
-
-  worker-3:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: agent_platform_worker_3
-    command: ["python", "scripts/run_worker.py"]
-    environment:
-      WORKER_ID: worker-3
-      WORKER_PORT: "8003"
-      PYTHONUNBUFFERED: "1"
-      TASK_QUEUE_BACKEND: redis
-      REDIS_URL: redis://redis:6379/1
-      DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
-      WORKER_AGENT_MODE: simple
-      EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - agent-network
-
-  worker-4:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: agent_platform_worker_4
-    command: ["python", "scripts/run_worker.py"]
-    environment:
-      WORKER_ID: worker-4
-      WORKER_PORT: "8004"
-      PYTHONUNBUFFERED: "1"
-      TASK_QUEUE_BACKEND: redis
-      REDIS_URL: redis://redis:6379/1
-      DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
-      WORKER_AGENT_MODE: simple
-      EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - agent-network
-
-  worker-5:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: agent_platform_worker_5
-    command: ["python", "scripts/run_worker.py"]
-    environment:
-      WORKER_ID: worker-5
-      WORKER_PORT: "8005"
-      PYTHONUNBUFFERED: "1"
-      TASK_QUEUE_BACKEND: redis
-      REDIS_URL: redis://redis:6379/1
-      DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
-      WORKER_AGENT_MODE: simple
-      EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
+      BGE_MODEL_PATH: /app/models/bge-m3
+      GEMMA_MODEL_PATH: /app/models/gemma-2-2b-it
+      PERSIANPHI_MODEL_PATH: /app/models/PersianPhi
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /app/models
+    volumes:
+      - "./models:/app/models"
     depends_on:
       postgres:
         condition: service_healthy

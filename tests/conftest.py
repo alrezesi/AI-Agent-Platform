@@ -45,9 +45,10 @@ def get_test_tenant_manager() -> TenantManager:
     return _tenant_manager
 
 
-# CRITICAL: Override runtime.get_tenant_manager to use the test singleton
-# This ensures the middleware uses the same manager instance as the tests.
-runtime.get_tenant_manager = get_test_tenant_manager
+# CRITICAL: Make the runtime storage point at the same shared in-memory tenant store
+# used by the tests so any runtime-created manager sees the same tenants.
+runtime._tenant_storage = shared_storage
+runtime.reset_runtime_cache()
 
 
 # Singleton scheduler instance

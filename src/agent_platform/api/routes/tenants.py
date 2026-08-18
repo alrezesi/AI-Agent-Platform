@@ -6,14 +6,15 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from src.agent_platform.multi_tenant.exceptions import TenantNotFoundError
 from src.agent_platform.multi_tenant.manager import TenantManager
-from src.agent_platform.multi_tenant.models import Tenant, TenantQuota
-from src.agent_platform.runtime import get_tenant_manager as get_runtime_tenant_manager
+from src.agent_platform.multi_tenant.models import Tenant, TenantQuota, TenantStatus
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
 
 
 # Dependency: get tenant manager
 def get_tenant_manager() -> TenantManager:
+    from src.agent_platform.runtime import get_tenant_manager as get_runtime_tenant_manager
+
     return get_runtime_tenant_manager()
 
 
@@ -102,5 +103,6 @@ async def list_tenants(
     manager: TenantManager = Depends(get_tenant_manager),
 ):
     """List all tenants."""
-    tenants = await manager.list_tenants(status, limit, offset)
+    tenant_status = None if status is None else TenantStatus(status)
+    tenants = await manager.list_tenants(tenant_status, limit=limit, offset=offset)
     return {"tenants": tenants, "count": len(tenants), "limit": limit, "offset": offset}

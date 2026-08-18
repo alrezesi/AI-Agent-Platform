@@ -47,15 +47,33 @@ async def _wait_for_api(client: httpx.AsyncClient, timeout: float = 120.0) -> No
     raise RuntimeError(f"API not ready: {last_error}")
 
 
-async def _wait_for_task(client: httpx.AsyncClient, task_id: str, timeout: float = 120.0) -> dict:
+async def _wait_for_task(
+    client: httpx.AsyncClient,
+    task_id: str,
+    headers: dict[str, str],
+    timeout: float = 120.0,
+) -> dict:
     deadline = asyncio.get_running_loop().time() + timeout
+
     while asyncio.get_running_loop().time() < deadline:
-        resp = await client.get(f"/tasks/{task_id}")
+        resp = await client.get(
+            f"/tasks/{task_id}",
+            headers=headers,
+        )
+
         if resp.status_code == 200:
             task = resp.json()
-            if task["status"] in {"completed", "failed", "cancelled", "timeout"}:
+
+            if task["status"] in {
+                "completed",
+                "failed",
+                "cancelled",
+                "timeout",
+            }:
                 return task
+
         await asyncio.sleep(1)
+
     raise TimeoutError(task_id)
 
 
@@ -97,7 +115,12 @@ async def test_worker_failover_to_second_worker():
         assert submit.status_code == 200, submit.text
         await asyncio.sleep(1.5)
         subprocess.run(["docker", "kill", "agent_platform_worker_1"], check=True, capture_output=True)
-        task = await _wait_for_task(client, task_id, timeout=90)
+        task = await _wait_for_task(
+            client,
+            task_id,
+            headers,
+            timeout=90,
+        )
         assert task["status"] == "completed"
         assert task["result"]["task_id"] == task_id
 

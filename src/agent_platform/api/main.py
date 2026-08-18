@@ -24,7 +24,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(TenantMiddleware, tenant_manager=get_tenant_manager())
+app.add_middleware(TenantMiddleware)
 
 # Register routes
 app.include_router(tasks.router)

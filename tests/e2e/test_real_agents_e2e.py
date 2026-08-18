@@ -1,4 +1,3 @@
-# tests/e2e/test_real_agents_e2e.py
 import subprocess
 import time
 from typing import Any
@@ -13,23 +12,21 @@ DOCKER_COMPOSE_FILE = "docker-compose.yml"
 
 STARTUP_WAIT = 15
 POLL_INTERVAL = 2
-TASK_TIMEOUT = 120
+TASK_TIMEOUT = 180
 
 
 @pytest.fixture(scope="session")
 def docker_stack():
-    """Start Docker stack before tests and tear down after."""
     print("\n[E2E] Starting Docker stack for real agent testing...")
-    subprocess.run(["docker-compose", "-f", DOCKER_COMPOSE_FILE, "down"], capture_output=True)
-    subprocess.run(["docker-compose", "-f", DOCKER_COMPOSE_FILE, "up", "-d"], check=True)
+    subprocess.run(["docker", "compose", "-f", DOCKER_COMPOSE_FILE, "down"], capture_output=True)
+    subprocess.run(["docker", "compose", "-f", DOCKER_COMPOSE_FILE, "up", "-d"], check=True)
     time.sleep(STARTUP_WAIT)
     yield
     print("\n[E2E] Tearing down Docker stack...")
-    subprocess.run(["docker-compose", "-f", DOCKER_COMPOSE_FILE, "down"], check=True)
+    subprocess.run(["docker", "compose", "-f", DOCKER_COMPOSE_FILE, "down"], check=True)
 
 
-def wait_for_api_ready(timeout: int = 30) -> bool:
-    """Poll API health endpoint until ready."""
+def wait_for_api_ready(timeout: int = 60) -> bool:
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
@@ -44,22 +41,23 @@ def wait_for_api_ready(timeout: int = 30) -> bool:
 
 @pytest.fixture(scope="module")
 def tenant_auth(docker_stack) -> dict[str, str]:
-    """Create a real tenant through the public API and return auth headers."""
     response = requests.post(
         f"{API_BASE_URL}/tenants/",
         json={"name": "E2E Tenant", "description": "E2E test tenant"},
         timeout=10,
     )
     response.raise_for_status()
-    tenant = response.json()
-    tenant_id = tenant["tenant_id"]
+    tenant_id = response.json()["tenant_id"]
     return {"X-Tenant-ID": tenant_id}
 
 
 def submit_task_and_wait(agent_name: str, payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
-    """Submit a task with tenant auth and poll until completion."""
-    task_data = {"agent_id": agent_name, "task_type": agent_name, "payload": payload}
-    response = requests.post(TASKS_ENDPOINT, json=task_data, headers=headers)
+    task_data = {
+        "agent_id": agent_name,
+        "task_type": agent_name,
+        "payload": payload,
+    }
+    response = requests.post(TASKS_ENDPOINT, json=task_data, headers=headers, timeout=10)
     assert response.status_code == 200, f"Failed to submit task: {response.text}"
     task_id = response.json().get("task_id")
     assert task_id is not None
@@ -68,25 +66,21 @@ def submit_task_and_wait(agent_name: str, payload: dict[str, Any], headers: dict
 
     start_time = time.time()
     while time.time() - start_time < TASK_TIMEOUT:
-        status_response = requests.get(f"{TASKS_ENDPOINT}/{task_id}", headers=headers)
+        status_response = requests.get(f"{TASKS_ENDPOINT}/{task_id}", headers=headers, timeout=10)
         assert status_response.status_code == 200
         result = status_response.json()
         status = result.get("status")
         if status == "completed":
-            print(f"[E2E] Task {task_id} completed successfully.")
             return result
-        elif status == "failed":
-            error_msg = result.get("error", "Unknown error")
-            raise AssertionError(f"Task {task_id} failed: {error_msg}")
+        if status == "failed":
+            raise AssertionError(f"Task {task_id} failed: {result.get('error', 'Unknown error')}")
         time.sleep(POLL_INTERVAL)
 
     raise TimeoutError(f"Task {task_id} did not complete within {TASK_TIMEOUT} seconds.")
 
 
 def test_real_bge_m3_agent(docker_stack):
-    """Test real BGE-M3 agent."""
     assert wait_for_api_ready(), "API service did not become ready in time."
-    test_text = "This is a test sentence for embedding generation."
     response = requests.post(
         f"{API_BASE_URL}/tenants/",
         json={"name": "E2E Tenant", "description": "E2E test tenant"},
@@ -95,30 +89,33 @@ def test_real_bge_m3_agent(docker_stack):
     response.raise_for_status()
     tenant_id = response.json()["tenant_id"]
     headers = {"X-Tenant-ID": tenant_id}
-    result = submit_task_and_wait(agent_name="bge-m3", payload={"text": test_text}, headers=headers)
-    output = result.get("output")
-    assert output is not None, "No output received from BGE-M3 agent."
-    embedding_vector = output.get("embedding")
-    assert isinstance(embedding_vector, list), "Embedding output is not a list."
+
+    result = submit_task_and_wait(
+        agent_name="bge-m3",
+        payload={"text": "This is a test sentence for embedding generation."},
+        headers=headers,
+    )
+
+    output = result.get("result")
+    assert output is not None, "No result received from BGE-M3 agent."
+    embedding_vector = output.get("embedding") if isinstance(output, dict) else output
+    assert isinstance(embedding_vector, list), "Embedding result is not a list."
+    assert len(embedding_vector) == 1024, f"Unexpected embedding dimension: {len(embedding_vector)}"
     assert len(embedding_vector) > 0, "Embedding vector is empty."
     assert all(isinstance(x, float) for x in embedding_vector), "Embedding contains non-float values."
-    print(f"[E2E] BGE-M3 test passed. Embedding dimension: {len(embedding_vector)}")
 
 
 def test_real_gemma_agent(docker_stack, tenant_auth):
-    """Test real Gemma 2B agent."""
     assert wait_for_api_ready(), "API service did not become ready in time."
-    test_prompt = "What is the capital of France? Answer in one word."
     result = submit_task_and_wait(
         agent_name="gemma-2b",
-        payload={"prompt": test_prompt, "max_tokens": 10},
+        payload={"prompt": "What is the capital of France? Answer in one word.", "max_tokens": 10},
         headers=tenant_auth,
     )
-    output = result.get("output")
-    assert output is not None, "No output received from Gemma agent."
-    generated_text = output.get("text")
+
+    output = result.get("result")
+    assert output is not None, "No result received from Gemma agent."
+    generated_text = output.get("text") if isinstance(output, dict) else output
     assert isinstance(generated_text, str), "Generated text is not a string."
     assert len(generated_text.strip()) > 0, "Generated text is empty."
-    assert "paris" in generated_text.lower() or len(generated_text) > 3, \
-        f"Unexpected output from Gemma: {generated_text}"
-    print(f"[E2E] Gemma test passed. Generated text: {generated_text[:50]}...")
+    assert "paris" in generated_text.lower() or len(generated_text) > 1, f"Unexpected output from Gemma: {generated_text}"

@@ -4,7 +4,7 @@
 import json
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from src.agent_platform.core.agent import AgentRecord, AgentStatus
 from src.agent_platform.distributed.node import NodeInfo
@@ -50,7 +50,7 @@ class DistributedRegistry(BaseAgentRegistry):
                 return False
         key = self._agent_key(agent_id)
         deleted = await self.redis.delete(key)
-        return deleted > 0
+        return int(cast(int, deleted) or 0) > 0
 
     async def get_agent(self, agent_id: str, tenant_id: str | None = None) -> AgentRecord | None:
         """Get an agent by ID."""
@@ -168,7 +168,7 @@ class DistributedRegistry(BaseAgentRegistry):
         key = self._node_key(node_id)
         data = await self.redis.get(key)
         if data:
-            return json.loads(data)
+            return cast(dict[str, Any], json.loads(data))
         return None
 
     async def list_nodes(self) -> list[dict[str, Any]]:
@@ -176,7 +176,8 @@ class DistributedRegistry(BaseAgentRegistry):
         node_ids = await self.redis.smembers(self._node_set_key())
         nodes = []
         for node_id in node_ids:
-            node = await self.get_node(node_id.decode() if isinstance(node_id, bytes) else node_id)
+            node_id_str = node_id.decode() if isinstance(node_id, bytes) else str(node_id)
+            node = await self.get_node(node_id_str)
             if node:
                 nodes.append(node)
         return nodes

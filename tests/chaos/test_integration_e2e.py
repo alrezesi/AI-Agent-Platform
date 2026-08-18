@@ -41,6 +41,13 @@ async def test_live_task_round_trip():
             client = httpx.AsyncClient(base_url=API_BASE_URL, timeout=30.0, trust_env=False)
             await _wait_for_api(client)
 
+        tenant_resp = await client.post(
+            "/tenants/",
+            json={"name": "Chaos E2E Tenant", "description": "Chaos integration test tenant"},
+        )
+        assert tenant_resp.status_code == 200, tenant_resp.text
+        headers = {"X-Tenant-ID": tenant_resp.json()["tenant_id"]}
+
         task_id = f"chaos-e2e-{int(time.time() * 1000)}"
         submit = await client.post(
             "/tasks/",
@@ -52,6 +59,7 @@ async def test_live_task_round_trip():
                 "timeout_seconds": 30,
                 "max_retries": 0,
             },
+            headers=headers,
         )
         assert submit.status_code == 200, submit.text
         assert submit.json()["task_id"] == task_id
@@ -59,7 +67,10 @@ async def test_live_task_round_trip():
         deadline = asyncio.get_event_loop().time() + 30.0
         task = None
         while asyncio.get_event_loop().time() < deadline:
-            response = await client.get(f"/tasks/{task_id}")
+            response = await client.get(
+                f"/tasks/{task_id}",
+                headers=headers,
+            )
             assert response.status_code == 200, response.text
             task = response.json()
             if task["status"] in ("completed", "failed", "timeout"):

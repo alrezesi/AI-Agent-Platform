@@ -3,6 +3,7 @@
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -107,7 +108,7 @@ class DeadLetterQueue:
                     return True
             return False
 
-    async def replay(self, entry_id: str, handler: callable) -> bool:
+    async def replay(self, entry_id: str, handler: Callable[[dict[str, Any]], Awaitable[bool]]) -> bool:
         """
         Replay a dead letter entry by passing it to the given handler.
         If successful, removes the entry; otherwise keeps it.

@@ -131,7 +131,7 @@ class InMemoryMessageBus(BaseMessageBus):
 
     async def route_by_role(self, message: Message) -> list[str]:
         """Route message to agents based on their roles."""
-        recipients = []
+        recipients: list[str] = []
         async with self._lock:
             # Evaluate route rules in priority order
             sorted_rules = sorted(
@@ -210,6 +210,7 @@ class InMemoryMessageBus(BaseMessageBus):
                 topic=topics[0] if topics and len(topics) == 1 else None,
                 role=roles[0] if roles and len(roles) == 1 else None,
                 filter_criteria=filter_criteria,
+                is_active=True,
             )
             self._sub_by_id[sub_id] = subscription
             self._subscriptions[agent_id].append(subscription)

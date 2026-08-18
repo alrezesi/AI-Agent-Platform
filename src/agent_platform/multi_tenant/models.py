@@ -20,11 +20,11 @@ class TenantStatus(StrEnum):
 
 class TenantQuota(BaseModel):
     """Resource quotas for a tenant."""
-    max_agents: int = Field(10, description="Maximum number of agents")
-    max_concurrent_tasks: int = Field(100, description="Maximum concurrent tasks")
-    max_messages_per_second: int = Field(1000, description="Maximum messages per second")
-    max_storage_mb: int = Field(1024, description="Maximum storage in MB")
-    max_workflows: int = Field(50, description="Maximum number of workflows")
+    max_agents: int = 10
+    max_concurrent_tasks: int = 100
+    max_messages_per_second: int = 1000
+    max_storage_mb: int = 1024
+    max_workflows: int = 50
 
 
 class Tenant(BaseModel):
@@ -33,11 +33,11 @@ class Tenant(BaseModel):
     """
     tenant_id: str = Field(..., description="Unique tenant identifier")
     name: str = Field(..., description="Tenant name")
-    description: str | None = Field(None, description="Tenant description")
-    status: TenantStatus = Field(TenantStatus.ACTIVE, description="Tenant status")
-    quota: TenantQuota = Field(default_factory=TenantQuota, description="Resource quotas")
-    config: dict[str, Any] = Field(default_factory=dict, description="Tenant-specific configuration")
-    api_keys: list[dict[str, Any]] = Field(default_factory=list, description="API keys for authentication")
+    description: str | None = None
+    status: TenantStatus = TenantStatus.ACTIVE
+    quota: TenantQuota = Field(default_factory=lambda: TenantQuota())
+    config: dict[str, Any] = Field(default_factory=dict)
+    api_keys: list[dict[str, Any]] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = Field(default_factory=dict)

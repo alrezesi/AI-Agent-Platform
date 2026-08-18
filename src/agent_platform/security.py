@@ -24,10 +24,10 @@ def api_key_matches(stored_hash: str, api_key: str) -> bool:
 def stored_api_key_hash(key_record: Mapping[str, Any]) -> str | None:
     """Return the hash that should be used to look up a stored key record."""
     stored_hash = key_record.get("key_hash")
-    if stored_hash:
+    if isinstance(stored_hash, str) and stored_hash:
         return stored_hash
     legacy_key = key_record.get("key")
-    if legacy_key:
+    if isinstance(legacy_key, str) and legacy_key:
         return hash_api_key(legacy_key)
     return None
 
@@ -37,4 +37,4 @@ def api_key_record_matches(key_record: Mapping[str, Any], api_key: str) -> bool:
     if not key_record.get("is_active", True):
         return False
     stored_hash = stored_api_key_hash(key_record)
-    return bool(stored_hash) and api_key_matches(stored_hash, api_key)
+    return isinstance(stored_hash, str) and api_key_matches(stored_hash, api_key)

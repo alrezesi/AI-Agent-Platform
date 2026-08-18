@@ -20,7 +20,7 @@ def _queue_backend() -> str:
 
 class _TenantStorage:
     def __init__(self) -> None:
-        self._tenants = {}
+        self._tenants: dict[str, object] = {}
 
 
 _tenant_storage = _TenantStorage()
@@ -33,7 +33,7 @@ def get_redis_client() -> Redis:
 
 
 @lru_cache(maxsize=1)
-def get_task_queue():
+def get_task_queue() -> RedisTaskQueue | InMemoryTaskQueue:
     backend = _queue_backend()
     if backend == "redis":
         return RedisTaskQueue(get_redis_client(), session_factory=get_session_factory())

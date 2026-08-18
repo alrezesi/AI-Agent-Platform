@@ -61,7 +61,7 @@ class Tool(ABC):
             props[param.name] = param
             if param.required:
                 required.append(param.name)
-        return ToolSchema(properties=props, required=required)
+        return ToolSchema(type="object", properties=props, required=required)
 
     def validate_params(self, params: dict[str, Any]) -> dict[str, Any]:
         """
