@@ -1,20 +1,43 @@
-
-# Docker Compose configuration for Chaos Engineering tests
+x-worker-common: &worker-common
+  build: .
+  command: ["python", "scripts/run_worker.py"]
+  environment:
+    TASK_QUEUE_BACKEND: redis
+    REDIS_URL: redis://redis:6379/1
+    DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
+    EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
+    BGE_MODEL_PATH: /app/models/bge-m3
+    GEMMA_MODEL_PATH: /app/models/gemma-2-2b-it
+    PERSIANPHI_MODEL_PATH: /app/models/PersianPhi
+    HF_HUB_OFFLINE: "1"
+    TRANSFORMERS_OFFLINE: "1"
+    SENTENCE_TRANSFORMERS_HOME: /app/models
+    PYTHONUNBUFFERED: "1"
+  volumes:
+    - ./models:/app/models
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+  networks:
+    - chaos_net
 
 services:
   postgres:
     image: postgres:16-alpine
     container_name: chaos_postgres
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: pass
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: agent123
       POSTGRES_DB: agent_platform
     ports:
-      - "5433:5432"  # Use different port to avoid conflict with local PostgreSQL
+      - "5433:5432"
     volumes:
       - chaos_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user"]
+      test: ["CMD-SHELL", "pg_isready -U agent"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -42,9 +65,17 @@ services:
     container_name: chaos_api
     command: uvicorn src.agent_platform.api.main:app --host 0.0.0.0 --port 8000 --workers 1
     environment:
-      - DATABASE_URL=postgresql://user:pass@postgres:5432/agent_platform
-      - REDIS_URL=redis://redis:6379/0
-      - LOG_LEVEL=INFO
+      TASK_QUEUE_BACKEND: redis
+      REDIS_URL: redis://redis:6379/1
+      DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
+      DISABLE_AUTH: "true"
+      EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
+      BGE_MODEL_PATH: /app/models/bge-m3
+      GEMMA_MODEL_PATH: /app/models/gemma-2-2b-it
+      PERSIANPHI_MODEL_PATH: /app/models/PersianPhi
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /app/models
     ports:
       - "8000:8000"
     depends_on:
@@ -55,95 +86,95 @@ services:
     networks:
       - chaos_net
 
-  worker1:
-    image: ai-agent-platform:chaos
-    container_name: chaos_worker1
-    command: python scripts/run_worker.py --node-id worker1 --port 8001
+  worker-1:
+    <<: *worker-common
+    container_name: chaos_worker_1
     environment:
-      - DATABASE_URL=postgresql://user:pass@postgres:5432/agent_platform
-      - REDIS_URL=redis://redis:6379/0
-      - LOG_LEVEL=INFO
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      api:
-        condition: service_started
-    networks:
-      - chaos_net
+      TASK_QUEUE_BACKEND: redis
+      REDIS_URL: redis://redis:6379/1
+      DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
+      EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
+      BGE_MODEL_PATH: /app/models/bge-m3
+      GEMMA_MODEL_PATH: /app/models/gemma-2-2b-it
+      PERSIANPHI_MODEL_PATH: /app/models/PersianPhi
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /app/models
+      PYTHONUNBUFFERED: "1"
+      WORKER_ID: worker-1
+      WORKER_PORT: "8001"
 
-  worker3:
-    image: ai-agent-platform:chaos
-    container_name: chaos_worker3
-    command: python scripts/run_worker.py --node-id worker3 --port 8003
+  worker-2:
+    <<: *worker-common
+    container_name: chaos_worker_2
     environment:
-      - DATABASE_URL=postgresql://user:pass@postgres:5432/agent_platform
-      - REDIS_URL=redis://redis:6379/0
-      - LOG_LEVEL=INFO
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      api:
-        condition: service_started
-    networks:
-      - chaos_net
+      TASK_QUEUE_BACKEND: redis
+      REDIS_URL: redis://redis:6379/1
+      DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
+      EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
+      BGE_MODEL_PATH: /app/models/bge-m3
+      GEMMA_MODEL_PATH: /app/models/gemma-2-2b-it
+      PERSIANPHI_MODEL_PATH: /app/models/PersianPhi
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /app/models
+      PYTHONUNBUFFERED: "1"
+      WORKER_ID: worker-2
+      WORKER_PORT: "8002"
 
-  worker4:
-    image: ai-agent-platform:chaos
-    container_name: chaos_worker4
-    command: python scripts/run_worker.py --node-id worker4 --port 8004
+  worker-3:
+    <<: *worker-common
+    container_name: chaos_worker_3
     environment:
-      - DATABASE_URL=postgresql://user:pass@postgres:5432/agent_platform
-      - REDIS_URL=redis://redis:6379/0
-      - LOG_LEVEL=INFO
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      api:
-        condition: service_started
-    networks:
-      - chaos_net
+      TASK_QUEUE_BACKEND: redis
+      REDIS_URL: redis://redis:6379/1
+      DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
+      EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
+      BGE_MODEL_PATH: /app/models/bge-m3
+      GEMMA_MODEL_PATH: /app/models/gemma-2-2b-it
+      PERSIANPHI_MODEL_PATH: /app/models/PersianPhi
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /app/models
+      PYTHONUNBUFFERED: "1"
+      WORKER_ID: worker-3
+      WORKER_PORT: "8003"
 
-  worker5:
-    image: ai-agent-platform:chaos
-    container_name: chaos_worker5
-    command: python scripts/run_worker.py --node-id worker5 --port 8005
+  worker-4:
+    <<: *worker-common
+    container_name: chaos_worker_4
     environment:
-      - DATABASE_URL=postgresql://user:pass@postgres:5432/agent_platform
-      - REDIS_URL=redis://redis:6379/0
-      - LOG_LEVEL=INFO
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      api:
-        condition: service_started
-    networks:
-      - chaos_net
+      TASK_QUEUE_BACKEND: redis
+      REDIS_URL: redis://redis:6379/1
+      DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
+      EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
+      BGE_MODEL_PATH: /app/models/bge-m3
+      GEMMA_MODEL_PATH: /app/models/gemma-2-2b-it
+      PERSIANPHI_MODEL_PATH: /app/models/PersianPhi
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /app/models
+      PYTHONUNBUFFERED: "1"
+      WORKER_ID: worker-4
+      WORKER_PORT: "8004"
 
-  worker2:
-    image: ai-agent-platform:chaos
-    container_name: chaos_worker2
-    command: python scripts/run_worker.py --node-id worker2 --port 8002
+  worker-5:
+    <<: *worker-common
+    container_name: chaos_worker_5
     environment:
-      - DATABASE_URL=postgresql://user:pass@postgres:5432/agent_platform
-      - REDIS_URL=redis://redis:6379/0
-      - LOG_LEVEL=INFO
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      api:
-        condition: service_started
-    networks:
-      - chaos_net
+      TASK_QUEUE_BACKEND: redis
+      REDIS_URL: redis://redis:6379/1
+      DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
+      EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
+      BGE_MODEL_PATH: /app/models/bge-m3
+      GEMMA_MODEL_PATH: /app/models/gemma-2-2b-it
+      PERSIANPHI_MODEL_PATH: /app/models/PersianPhi
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /app/models
+      PYTHONUNBUFFERED: "1"
+      WORKER_ID: worker-5
+      WORKER_PORT: "8005"
 
 volumes:
   chaos_postgres_data:
