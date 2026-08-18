@@ -1,0 +1,9 @@
+models/
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+reports/
+.git/
+.idea/
