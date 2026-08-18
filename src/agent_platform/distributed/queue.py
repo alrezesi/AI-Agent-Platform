@@ -56,17 +56,24 @@ class DistributedTaskQueue(BaseTaskQueue):
 
     async def enqueue(self, task: Task) -> None:
         """Add a task to the distributed queue."""
-        existing = await self.redis.get(self._task_key(task.task_id))
-        if self._has_existing_task(existing):
+        # Atomic first-writer-wins guard for duplicate task IDs.
+        try:
+            claimed = await self.redis.set(
+                self._task_key(task.task_id),
+                task.model_dump_json(),
+                ex=self.ttl_seconds,
+                nx=True,
+            )
+        except TypeError:
+            claimed = await self.redis.set(
+                self._task_key(task.task_id),
+                task.model_dump_json(),
+                ex=self.ttl_seconds,
+                nx=True,
+            )
+        if not claimed:
             return
         task.status = TaskStatus.PENDING
-
-        # Store task data
-        await self.redis.setex(
-            self._task_key(task.task_id),
-            self.ttl_seconds,
-            task.model_dump_json()
-        )
 
         # Store meta for quick access
         await self.redis.setex(

@@ -34,6 +34,13 @@ class TenantManager:
         self._api_key_index: dict[str, str] = {}
         self._rebuild_api_key_index()
 
+    def _tenant_store(self) -> dict[str, Tenant]:
+        store = getattr(self.storage, "_tenants", None)
+        if store is None:
+            store = {}
+            setattr(self.storage, "_tenants", store)
+        return store
+
     async def create_tenant(
         self,
         name: str,
@@ -123,20 +130,17 @@ class TenantManager:
 
     async def _save_tenant(self, tenant: Tenant) -> None:
         """Save tenant to storage and refresh the API key index."""
-        if not hasattr(self.storage, "_tenants"):
-            self.storage._tenants = {}
-        previous = self.storage._tenants.get(tenant.tenant_id)
+        store = self._tenant_store()
+        previous = store.get(tenant.tenant_id)
         if previous is not None:
             self._unindex_tenant_keys(previous)
-        self.storage._tenants[tenant.tenant_id] = tenant
+        store[tenant.tenant_id] = tenant
         if tenant.is_active():
             self._index_tenant_keys(tenant)
 
     async def _load_tenant(self, tenant_id: str) -> Tenant | None:
         """Load tenant from storage."""
-        if not hasattr(self.storage, "_tenants"):
-            self.storage._tenants = {}
-        return cast(Tenant | None, self.storage._tenants.get(tenant_id))
+        return cast(Tenant | None, self._tenant_store().get(tenant_id))
 
     async def _list_tenants(
         self,
@@ -145,9 +149,7 @@ class TenantManager:
         offset: int = 0,
     ) -> list[Tenant]:
         """List tenants from storage."""
-        if not hasattr(self.storage, "_tenants"):
-            self.storage._tenants = {}
-        tenants = list(self.storage._tenants.values())
+        tenants = list(self._tenant_store().values())
         if status:
             tenants = [t for t in tenants if t.status == status]
         return tenants[offset : offset + limit]
@@ -207,7 +209,7 @@ class TenantManager:
 
     def _rebuild_api_key_index(self) -> None:
         self._api_key_index.clear()
-        tenants = getattr(self.storage, "_tenants", None) or {}
+        tenants = self._tenant_store()
         for tenant in tenants.values():
             self._index_tenant_keys(tenant)
 

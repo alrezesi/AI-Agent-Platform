@@ -5,6 +5,7 @@ from pathlib import Path
 
 from redis.asyncio import Redis
 
+from src.agent_platform.agents.simple import SimpleTaskAgent
 from src.agent_platform.core.agent import AgentCapability, AgentRecord, AgentStatus, BaseAgent
 from src.agent_platform.distributed.node import NodeInfo
 from src.agent_platform.distributed.queue import DistributedTaskQueue
@@ -12,7 +13,6 @@ from src.agent_platform.distributed.registry import DistributedRegistry
 from src.agent_platform.distributed.worker import WorkerConfig, WorkerNode
 from src.agents.bge_m3_agent import BGEM3Agent
 from src.agents.gemma_agent import GemmaAgent
-from src.agent_platform.agents.simple import SimpleTaskAgent
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),

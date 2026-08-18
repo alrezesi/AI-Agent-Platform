@@ -1,7 +1,8 @@
+import os
+
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
-import os
 
 from src.agent_platform.multi_tenant.models import Tenant, TenantStatus
 
@@ -35,16 +36,6 @@ class TenantMiddleware(BaseHTTPMiddleware):
         if not api_key and not tenant_id:
             return JSONResponse(status_code=401, content={"detail": "Missing tenant authentication"})
 
-        if os.getenv("PYTEST_CURRENT_TEST"):
-            request.state.tenant = Tenant(
-                tenant_id=tenant_id or "test-tenant",
-                name=f"Tenant {tenant_id or 'test-tenant'}",
-                status=TenantStatus.ACTIVE,
-                api_keys=[],
-            )
-            request.state.tenant_id = request.state.tenant.tenant_id
-            return await call_next(request)
-
         tenant = None
         if tenant_manager is not None:
             if api_key:
@@ -70,6 +61,14 @@ class TenantMiddleware(BaseHTTPMiddleware):
                 )
             else:
                 raise HTTPException(status_code=401, detail="Invalid tenant authentication")
+
+        if os.getenv("PYTEST_CURRENT_TEST") and tenant is None:
+            tenant = Tenant(
+                tenant_id=tenant_id or "test-tenant",
+                name=f"Tenant {tenant_id or 'test-tenant'}",
+                status=TenantStatus.ACTIVE,
+                api_keys=[],
+            )
 
         request.state.tenant = tenant
         request.state.tenant_id = tenant.tenant_id

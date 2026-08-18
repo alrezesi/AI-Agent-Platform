@@ -21,7 +21,6 @@ from src.agent_platform import runtime
 from src.agent_platform.api.main import app as original_app
 from src.agent_platform.api.routes.tasks import get_scheduler as original_get_scheduler
 from src.agent_platform.api.routes.tenants import get_tenant_manager as original_get_tenant_manager
-from src.agent_platform.multi_tenant.manager import TenantManager
 from src.agent_platform.scheduler.in_memory import InMemoryTaskQueue
 from src.agent_platform.scheduler.scheduler import TaskScheduler
 
@@ -32,17 +31,9 @@ class SharedStorage:
 
 shared_storage = SharedStorage()
 
-# Singleton tenant manager instance
-_tenant_manager = None
-
-def get_test_tenant_manager() -> TenantManager:
-    """Return a singleton TenantManager for tests."""
-    global _tenant_manager
-    if _tenant_manager is None:
-        _tenant_manager = TenantManager(shared_storage)
-        # Rebuild index to ensure it's fresh
-        _tenant_manager._rebuild_api_key_index()
-    return _tenant_manager
+def get_test_tenant_manager():
+    """Return the runtime tenant manager backed by shared in-memory storage."""
+    return runtime.get_tenant_manager()
 
 
 # CRITICAL: Make the runtime storage point at the same shared in-memory tenant store

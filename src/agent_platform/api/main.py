@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from src.agent_platform.api.routes import monitoring, tasks, tenants
 from src.agent_platform.multi_tenant.middleware import TenantMiddleware
-from src.agent_platform.runtime import get_tenant_manager, prepare_runtime
+from src.agent_platform.runtime import prepare_runtime
 
 
 @asynccontextmanager

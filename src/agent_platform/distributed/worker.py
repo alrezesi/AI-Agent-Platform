@@ -5,7 +5,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from ..core.task import Task
+from ..core.task import Task, TaskStatus
 from ..scheduler.worker import TaskWorker
 from .node import Node, NodeInfo
 from .queue import DistributedTaskQueue
@@ -102,7 +102,9 @@ class WorkerNode(Node):
                 )
                 if task:
                     # Execute the task with concurrency limit
-                    asyncio.create_task(self._execute_task_with_semaphore(task))
+                    task_runner = asyncio.create_task(self._execute_task_with_semaphore(task))
+                    self._tasks[task.task_id] = task_runner
+                    task_runner.add_done_callback(self._make_task_cleanup_callback(task.task_id))
                 else:
                     await asyncio.sleep(self.config.poll_interval)
             except asyncio.CancelledError:
@@ -143,8 +145,9 @@ class WorkerNode(Node):
             agent = await self.agent_registry.get_agent(task.agent_id)
             if not agent:
                 logger.error(f"Agent {task.agent_id} not found for task {task_id}")
-                task.status = "failed"
+                task.status = TaskStatus.FAILED
                 task.error = "Agent not found"
+                await self.queue.update_task(task)
                 return
 
             # Execute using TaskWorker
@@ -158,6 +161,12 @@ class WorkerNode(Node):
 
         except Exception as e:
             logger.error(f"Worker {self.info.node_id} failed to execute task {task_id}: {e}")
-            task.status = "failed"
+            task.status = TaskStatus.FAILED
             task.error = str(e)
             await self.queue.update_task(task)
+
+    def _make_task_cleanup_callback(self, task_id: str):
+        def _cleanup(_: asyncio.Task[Any]) -> None:
+            self._tasks.pop(task_id, None)
+
+        return _cleanup

@@ -72,9 +72,6 @@ class AgentEngine:
         self._agents[agent_id] = agent
         self._semaphores[agent_id] = asyncio.Semaphore(self.max_concurrent_tasks_per_agent)
 
-        # Create a dedicated task queue for this agent.
-        agent._task_queue = asyncio.Queue()
-
         agent._task_queue = asyncio.Queue()
 
         # Register with the central registry

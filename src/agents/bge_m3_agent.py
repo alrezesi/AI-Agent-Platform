@@ -17,7 +17,7 @@ class BGEM3Agent(BaseAgent):
         self._model = None
 
     async def initialize(self) -> None:
-        model_path = Path(self.model_path)
+        model_path = Path(self.model_path or os.getenv("BGE_MODEL_PATH", "/app/models/bge-m3"))
         if not model_path.exists():
             raise RuntimeError(f"Required local model not found: {model_path}")
         if not model_path.is_dir():
