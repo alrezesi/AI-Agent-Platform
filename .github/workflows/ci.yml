@@ -74,10 +74,16 @@ jobs:
         run: docker compose up -d --build postgres redis api worker-1 worker-2 worker-3 worker-4 worker-5
 
       - name: E2E tests
-        run: pytest tests/e2e tests/chaos/test_integration_e2e.py --junitxml=reports/e2e.xml -m "e2e or chaos" --maxfail=1
+        env:
+          RUN_DOCKER_E2E: "true"
+          PRODUCTION_VERIFY_API_URL: http://127.0.0.1:8000
+        run: pytest tests/e2e --junitxml=reports/e2e.xml -m e2e --maxfail=1
 
       - name: Chaos verification tests
-        run: pytest tests/chaos/test_production_verification.py --junitxml=reports/chaos.xml --maxfail=1
+        env:
+          RUN_DOCKER_CHAOS: "true"
+          PRODUCTION_VERIFY_API_URL: http://127.0.0.1:8000
+        run: pytest tests/chaos --junitxml=reports/chaos.xml -m chaos --maxfail=1
 
       - name: Real load test
         run: python scripts/chaos_load_test.py --tasks 10000 --concurrency 500 --output load_test_results.json
