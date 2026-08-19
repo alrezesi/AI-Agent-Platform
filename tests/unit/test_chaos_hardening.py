@@ -1,4 +1,6 @@
 import asyncio
+import os
+import subprocess
 import time
 from collections import defaultdict
 
@@ -285,3 +287,70 @@ async def test_api_to_redis_latency_injection(latency_seconds):
     assert task_id == f"latency-{latency_seconds}"
     assert elapsed >= latency_seconds
     assert await scheduler.get_task(task_id) is not None
+
+
+def _docker_latency_enabled() -> bool:
+    return os.getenv("RUN_DOCKER_CHAOS", "").lower() in {"1", "true", "yes"} or os.getenv("RUN_DOCKER_E2E", "").lower() in {"1", "true", "yes"}
+
+
+def _docker_available() -> bool:
+    try:
+        subprocess.run(["docker", "info"], capture_output=True, text=True, timeout=10, check=True)
+        return True
+    except Exception:
+        return False
+
+
+def _docker_compose_base() -> list[str]:
+    return ["docker", "compose", "-f", "docker-compose.yml"]
+
+
+def _redis_container_name() -> str:
+    return "agent_platform_redis"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("latency_ms", [100, 500, 2000, 5000])
+async def test_api_to_redis_latency_injection_real_container(latency_ms: int):
+    if not _docker_latency_enabled():
+        pytest.skip("Real container latency injection only runs with Docker chaos/e2e enabled")
+    if not _docker_available():
+        pytest.skip("Real container latency injection requires a running Docker daemon")
+
+    # This is intentionally a real container-level test. It relies on tc being available in the Redis image
+    # or on the image being extended in CI to provide it.
+    command_prefix = _docker_compose_base()
+    redis_name = _redis_container_name()
+    setup_cmd = [
+        *command_prefix,
+        "exec",
+        redis_name,
+        "sh",
+        "-lc",
+        f"command -v tc >/dev/null 2>&1 && tc qdisc replace dev eth0 root netem delay {latency_ms}ms",
+    ]
+    cleanup_cmd = [
+        *command_prefix,
+        "exec",
+        redis_name,
+        "sh",
+        "-lc",
+        "command -v tc >/dev/null 2>&1 && tc qdisc del dev eth0 root netem || true",
+    ]
+
+    setup = subprocess.run(setup_cmd, capture_output=True, text=True)
+    if setup.returncode != 0 or "command -v tc" in setup.stderr:
+        pytest.skip("Redis container does not expose tc; real latency injection is unavailable here")
+
+    try:
+        from redis.asyncio import Redis
+
+        redis = Redis.from_url("redis://localhost:6379/1", decode_responses=True)
+        started = time.perf_counter()
+        await redis.ping()
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        await redis.aclose()
+
+        assert elapsed_ms >= latency_ms * 0.8
+    finally:
+        subprocess.run(cleanup_cmd, capture_output=True, text=True)

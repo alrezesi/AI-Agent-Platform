@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from scripts.report_coverage import main, read_coverage_percentage, read_junit_summary, read_load_metrics
+from scripts.report_coverage import (
+    main,
+    read_coverage_percentage,
+    read_junit_summary,
+    read_load_metrics,
+)
 
 
 def test_read_coverage_percentage(tmp_path: Path) -> None:

@@ -4,8 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import HTTPException
-from fastapi import Request
+from fastapi import HTTPException, Request
 
 from src.agent_platform.api.routes.tasks import (
     cancel_task,
@@ -15,7 +14,12 @@ from src.agent_platform.api.routes.tasks import (
     list_tasks,
     submit_task,
 )
-from src.agent_platform.runtime import get_scheduler, get_task_queue, get_tenant_manager, reset_runtime_cache
+from src.agent_platform.runtime import (
+    get_scheduler,
+    get_task_queue,
+    get_tenant_manager,
+    reset_runtime_cache,
+)
 
 
 def _request_with_tenant(tenant_id: str | None) -> Request:

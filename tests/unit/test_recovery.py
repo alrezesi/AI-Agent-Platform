@@ -1,23 +1,15 @@
-
-# Unit tests for recovery components
-
+from __future__ import annotations
 
 import pytest
 
-from src.agent_platform.recovery.checkpoint import (
-    CheckpointManager,
-    InMemoryCheckpointStore,
-)
+from src.agent_platform.recovery.checkpoint import CheckpointManager, InMemoryCheckpointStore
 from src.agent_platform.recovery.circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerConfig,
     CircuitOpenError,
     CircuitState,
 )
-from src.agent_platform.recovery.dead_letter import (
-    DeadLetterQueue,
-    DeadLetterReason,
-)
+from src.agent_platform.recovery.dead_letter import DeadLetterQueue, DeadLetterReason
 from src.agent_platform.recovery.idempotency import IdempotencyManager
 from src.agent_platform.recovery.retry import (
     FixedDelayRetry,
@@ -25,7 +17,6 @@ from src.agent_platform.recovery.retry import (
     RetryExhaustedError,
 )
 
-# --- Retry Tests ---
 
 @pytest.mark.asyncio
 async def test_fixed_retry_success():
@@ -46,6 +37,24 @@ async def test_fixed_retry_success():
 
 
 @pytest.mark.asyncio
+async def test_fixed_retry_fail_fail_success():
+    policy = FixedDelayRetry(delay=0.01, max_retries=3)
+    executor = RetryExecutor(policy)
+    call_count = 0
+
+    async def func():
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            raise ValueError("temporary")
+        return "success"
+
+    result = await executor.execute(func)
+    assert result == "success"
+    assert call_count == 3
+
+
+@pytest.mark.asyncio
 async def test_retry_exhausted():
     policy = FixedDelayRetry(delay=0.01, max_retries=2)
     executor = RetryExecutor(policy)
@@ -57,7 +66,21 @@ async def test_retry_exhausted():
         await executor.execute(func)
 
 
-# --- Circuit Breaker Tests ---
+@pytest.mark.asyncio
+async def test_retry_exhausted_after_four_failures():
+    policy = FixedDelayRetry(delay=0.01, max_retries=3)
+    executor = RetryExecutor(policy)
+    call_count = 0
+
+    async def func():
+        nonlocal call_count
+        call_count += 1
+        raise ValueError("still failing")
+
+    with pytest.raises(RetryExhaustedError):
+        await executor.execute(func)
+    assert call_count == 4
+
 
 @pytest.mark.asyncio
 async def test_circuit_breaker():
@@ -70,7 +93,6 @@ async def test_circuit_breaker():
         call_count += 1
         raise ValueError("failure")
 
-    # First two calls should fail, circuit opens
     for _ in range(2):
         with pytest.raises(ValueError):
             await cb.call(failing_func)
@@ -78,14 +100,11 @@ async def test_circuit_breaker():
     assert cb.state == CircuitState.OPEN
     assert call_count == 2
 
-    # Next call should be blocked
     with pytest.raises(CircuitOpenError):
         await cb.call(failing_func)
 
-    assert call_count == 2  # not executed
+    assert call_count == 2
 
-
-# --- Dead Letter Queue Tests ---
 
 @pytest.mark.asyncio
 async def test_dead_letter():
@@ -100,7 +119,6 @@ async def test_dead_letter():
     assert len(entries) == 1
     assert entries[0].id == entry_id
 
-    # Replay with successful handler
     async def handler(data):
         return True
 
@@ -109,8 +127,6 @@ async def test_dead_letter():
     entries_after = await dlq.list_entries()
     assert len(entries_after) == 0
 
-
-# --- Checkpoint Tests ---
 
 @pytest.mark.asyncio
 async def test_checkpoint():
@@ -130,38 +146,30 @@ async def test_checkpoint():
     assert latest.checkpoint_id == chk_id
 
 
-# --- Idempotency Tests ---
-
 @pytest.mark.asyncio
 async def test_idempotency():
     manager = IdempotencyManager()
-
     key = "test-key"
 
-    # First call: lock acquired (returns None)
     record = await manager.check_and_lock(key)
     assert record is None
 
-    # Second call before completion: should return processing record
     record2 = await manager.check_and_lock(key)
     assert record2 is not None
     assert record2.status == "processing"
 
-    # Complete the first execution
     await manager.complete(key, "result")
 
-    # Third call should return completed record
     record3 = await manager.check_and_lock(key)
     assert record3 is not None
     assert record3.status == "completed"
     assert record3.result == "result"
 
-    # Get result
     result = await manager.get_result(key)
     assert result == "result"
     assert await manager.is_completed(key) is True
 
-# تست replay با handler ناموفق
+
 @pytest.mark.asyncio
 async def test_dead_letter_replay_failure():
     dlq = DeadLetterQueue()
@@ -177,7 +185,6 @@ async def test_dead_letter_replay_failure():
     success = await dlq.replay(entry_id, failing_handler)
     assert success is False
 
-    # Entry should still exist
     entry = await dlq.get_entry(entry_id)
     assert entry is not None
     assert entry.retry_count == 1
@@ -187,8 +194,6 @@ async def test_dead_letter_replay_failure():
 async def test_checkpoint_cleanup():
     store = InMemoryCheckpointStore()
     manager = CheckpointManager(store)
-
-    # Create 15 checkpoints
     for i in range(15):
         await manager.create_checkpoint("wf1", {"step": i})
 
