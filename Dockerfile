@@ -6,17 +6,31 @@ WORKDIR /app
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        gcc \
         libpq-dev \
+        curl \
     && rm -rf /var/lib/apt/lists/*
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    TOKENIZERS_PARALLELISM=false \
+    OMP_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    NUMEXPR_NUM_THREADS=1 \
+    VECLIB_MAXIMUM_THREADS=1 \
+    TORCH_NUM_THREADS=1 \
+    TORCH_NUM_INTEROP_THREADS=1
 
 COPY pyproject.toml README.md ./
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip \
-    && pip install -e ".[dev]"
+    && pip install -e .
 
-COPY . .
+COPY src ./src
+COPY migrations ./migrations
+COPY scripts ./scripts
 
 ENV PYTHONPATH=/app
 

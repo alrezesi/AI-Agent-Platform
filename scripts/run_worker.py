@@ -5,14 +5,13 @@ from pathlib import Path
 
 from redis.asyncio import Redis
 
-from src.agent_platform.agents.simple import SimpleTaskAgent
 from src.agent_platform.core.agent import AgentCapability, AgentRecord, AgentStatus, BaseAgent
 from src.agent_platform.distributed.node import NodeInfo
 from src.agent_platform.distributed.queue import DistributedTaskQueue
 from src.agent_platform.distributed.registry import DistributedRegistry
 from src.agent_platform.distributed.worker import WorkerConfig, WorkerNode
 from src.agents.bge_m3_agent import BGEM3Agent
-from src.agents.gemma_agent import GemmaAgent
+
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -71,8 +70,6 @@ class RuntimeAgentRegistry:
     def _build_capabilities(agent: BaseAgent):
         if agent.agent_id == "bge-m3":
             return [AgentCapability(name="embedding", description="Generate BGE-M3 text embeddings")]
-        if agent.agent_id == "gemma-2b":
-            return [AgentCapability(name="text-generation", description="Generate text using Gemma 2B")]
         return []
 
 
@@ -92,29 +89,14 @@ def validate_local_model_path(label: str, env_var: str) -> str:
 async def initialize_agents() -> list[BaseAgent]:
     tenant_id = os.getenv("AGENT_TENANT_ID", "dummy")
     bge_model_path = validate_local_model_path("BGE-M3", "BGE_MODEL_PATH")
-    gemma_model_path = validate_local_model_path("Gemma", "GEMMA_MODEL_PATH")
-    if os.getenv("ENABLE_PERSIANPHI", "false").strip().lower() == "true":
-        validate_local_model_path("PersianPhi", "PERSIANPHI_MODEL_PATH")
 
     agents: list[BaseAgent] = [
-        SimpleTaskAgent(
-            agent_id="default-agent",
-            name="Default Agent",
-            tenant_id=tenant_id,
-        ),
         BGEM3Agent(
             agent_id="bge-m3",
             name="BGE-M3",
             tenant_id=tenant_id,
             model_path=bge_model_path,
             device=os.getenv("BGE_DEVICE", "cpu"),
-        ),
-        GemmaAgent(
-            agent_id="gemma-2b",
-            name="Gemma 2B",
-            tenant_id=tenant_id,
-            model_path=gemma_model_path,
-            device=os.getenv("GEMMA_DEVICE", "cpu"),
         ),
     ]
 

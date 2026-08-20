@@ -26,6 +26,37 @@ class _TenantStorage:
 _tenant_storage = _TenantStorage()
 
 
+def _configure_cpu_runtime() -> None:
+    """
+    Keep each container/process inside a predictable CPU envelope.
+
+    The local audit stack runs on a CPU-only machine with two workers, so we
+    keep BLAS/OpenMP thread counts at one unless the operator has explicitly
+    overridden them.
+    """
+    defaults = {
+        "TOKENIZERS_PARALLELISM": "false",
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1",
+    }
+    for key, value in defaults.items():
+        os.environ.setdefault(key, value)
+    try:
+        import torch
+
+        torch.set_num_threads(int(os.getenv("TORCH_NUM_THREADS", "1")))
+        torch.set_num_interop_threads(int(os.getenv("TORCH_NUM_INTEROP_THREADS", "1")))
+    except Exception:
+        # Torch is optional in some unit-test paths.
+        pass
+
+
+_configure_cpu_runtime()
+
+
 @lru_cache(maxsize=1)
 def get_redis_client() -> Redis:
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")

@@ -7,14 +7,21 @@ x-worker-common: &worker-common
     DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
     EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
     BGE_MODEL_PATH: /app/models/bge-m3
-    GEMMA_MODEL_PATH: /app/models/gemma-2-2b-it
-    PERSIANPHI_MODEL_PATH: /app/models/PersianPhi
     HF_HUB_OFFLINE: "1"
     TRANSFORMERS_OFFLINE: "1"
     SENTENCE_TRANSFORMERS_HOME: /app/models
     PYTHONUNBUFFERED: "1"
+    TOKENIZERS_PARALLELISM: "false"
+    OMP_NUM_THREADS: "1"
+    MKL_NUM_THREADS: "1"
+    OPENBLAS_NUM_THREADS: "1"
+    NUMEXPR_NUM_THREADS: "1"
+    VECLIB_MAXIMUM_THREADS: "1"
+    TORCH_NUM_THREADS: "1"
+    TORCH_NUM_INTEROP_THREADS: "1"
+    BGE_MAX_SEQ_LENGTH: "512"
   volumes:
-    - ./models:/app/models
+    - ./models:/app/models:ro
   depends_on:
     postgres:
       condition: service_healthy
@@ -23,6 +30,8 @@ x-worker-common: &worker-common
   restart: unless-stopped
   networks:
     - agent-network
+  cpus: "1.0"
+  mem_limit: 2g
 
 services:
   postgres:
@@ -32,6 +41,7 @@ services:
       POSTGRES_USER: agent
       POSTGRES_PASSWORD: agent123
       POSTGRES_DB: agent_platform
+      POSTGRES_INITDB_ARGS: "--data-checksums"
     ports:
       - "5433:5432"
     volumes:
@@ -44,6 +54,8 @@ services:
     restart: unless-stopped
     networks:
       - agent-network
+    cpus: "0.5"
+    mem_limit: 512m
 
   redis:
     image: redis:7-alpine
@@ -58,6 +70,8 @@ services:
     restart: unless-stopped
     networks:
       - agent-network
+    cpus: "0.25"
+    mem_limit: 256m
 
   api:
     build: .
@@ -69,14 +83,20 @@ services:
       TASK_QUEUE_BACKEND: redis
       REDIS_URL: redis://redis:6379/1
       DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
-      DISABLE_AUTH: "true"
       EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
       BGE_MODEL_PATH: /app/models/bge-m3
-      GEMMA_MODEL_PATH: /app/models/gemma-2-2b-it
-      PERSIANPHI_MODEL_PATH: /app/models/PersianPhi
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       SENTENCE_TRANSFORMERS_HOME: /app/models
+      PYTHONUNBUFFERED: "1"
+      TOKENIZERS_PARALLELISM: "false"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      VECLIB_MAXIMUM_THREADS: "1"
+      TORCH_NUM_THREADS: "1"
+      TORCH_NUM_INTEROP_THREADS: "1"
     depends_on:
       postgres:
         condition: service_healthy
@@ -87,6 +107,8 @@ services:
     restart: unless-stopped
     networks:
       - agent-network
+    cpus: "1.0"
+    mem_limit: 2g
 
   worker-1:
     <<: *worker-common
@@ -97,14 +119,21 @@ services:
       DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
       EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
       BGE_MODEL_PATH: /app/models/bge-m3
-      GEMMA_MODEL_PATH: /app/models/gemma-2-2b-it
-      PERSIANPHI_MODEL_PATH: /app/models/PersianPhi
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       SENTENCE_TRANSFORMERS_HOME: /app/models
       PYTHONUNBUFFERED: "1"
+      TOKENIZERS_PARALLELISM: "false"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      VECLIB_MAXIMUM_THREADS: "1"
+      TORCH_NUM_THREADS: "1"
+      TORCH_NUM_INTEROP_THREADS: "1"
       WORKER_ID: worker-1
       WORKER_PORT: "8001"
+      BGE_MAX_SEQ_LENGTH: "512"
 
   worker-2:
     <<: *worker-common
@@ -115,68 +144,21 @@ services:
       DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
       EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
       BGE_MODEL_PATH: /app/models/bge-m3
-      GEMMA_MODEL_PATH: /app/models/gemma-2-2b-it
-      PERSIANPHI_MODEL_PATH: /app/models/PersianPhi
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       SENTENCE_TRANSFORMERS_HOME: /app/models
       PYTHONUNBUFFERED: "1"
+      TOKENIZERS_PARALLELISM: "false"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      VECLIB_MAXIMUM_THREADS: "1"
+      TORCH_NUM_THREADS: "1"
+      TORCH_NUM_INTEROP_THREADS: "1"
       WORKER_ID: worker-2
       WORKER_PORT: "8002"
-
-  worker-3:
-    <<: *worker-common
-    container_name: agent_platform_worker_3
-    environment:
-      TASK_QUEUE_BACKEND: redis
-      REDIS_URL: redis://redis:6379/1
-      DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
-      EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
-      BGE_MODEL_PATH: /app/models/bge-m3
-      GEMMA_MODEL_PATH: /app/models/gemma-2-2b-it
-      PERSIANPHI_MODEL_PATH: /app/models/PersianPhi
-      HF_HUB_OFFLINE: "1"
-      TRANSFORMERS_OFFLINE: "1"
-      SENTENCE_TRANSFORMERS_HOME: /app/models
-      PYTHONUNBUFFERED: "1"
-      WORKER_ID: worker-3
-      WORKER_PORT: "8003"
-
-  worker-4:
-    <<: *worker-common
-    container_name: agent_platform_worker_4
-    environment:
-      TASK_QUEUE_BACKEND: redis
-      REDIS_URL: redis://redis:6379/1
-      DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
-      EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
-      BGE_MODEL_PATH: /app/models/bge-m3
-      GEMMA_MODEL_PATH: /app/models/gemma-2-2b-it
-      PERSIANPHI_MODEL_PATH: /app/models/PersianPhi
-      HF_HUB_OFFLINE: "1"
-      TRANSFORMERS_OFFLINE: "1"
-      SENTENCE_TRANSFORMERS_HOME: /app/models
-      PYTHONUNBUFFERED: "1"
-      WORKER_ID: worker-4
-      WORKER_PORT: "8004"
-
-  worker-5:
-    <<: *worker-common
-    container_name: agent_platform_worker_5
-    environment:
-      TASK_QUEUE_BACKEND: redis
-      REDIS_URL: redis://redis:6379/1
-      DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
-      EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
-      BGE_MODEL_PATH: /app/models/bge-m3
-      GEMMA_MODEL_PATH: /app/models/gemma-2-2b-it
-      PERSIANPHI_MODEL_PATH: /app/models/PersianPhi
-      HF_HUB_OFFLINE: "1"
-      TRANSFORMERS_OFFLINE: "1"
-      SENTENCE_TRANSFORMERS_HOME: /app/models
-      PYTHONUNBUFFERED: "1"
-      WORKER_ID: worker-5
-      WORKER_PORT: "8005"
+      BGE_MAX_SEQ_LENGTH: "512"
 
 volumes:
   postgres_data:
