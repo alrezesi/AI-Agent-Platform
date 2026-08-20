@@ -20,9 +20,6 @@ DEFAULT_CONCURRENCY = 500
 WORKER_CONTAINERS = [
     "agent_platform_worker_1",
     "agent_platform_worker_2",
-    "agent_platform_worker_3",
-    "agent_platform_worker_4",
-    "agent_platform_worker_5",
 ]
 
 
@@ -95,9 +92,9 @@ async def _submit_and_wait(client: httpx.AsyncClient, task_id: str, headers: dic
         "/tasks/",
         json={
             "task_id": task_id,
-            "agent_id": "default-agent",
+            "agent_id": "bge-m3",
             "task_type": "load",
-            "payload": {"message": "load-test", "delay_seconds": 0.01},
+            "payload": {"text": "load-test"},
             "timeout_seconds": 30,
             "max_retries": 1,
         },

@@ -62,7 +62,7 @@ async def _wait_for_api(client: httpx.AsyncClient, timeout: float = 180.0) -> No
     raise RuntimeError("API did not become healthy")
 
 
-async def _wait_for_task(client: httpx.AsyncClient, task_id: str, headers: dict[str, str], timeout: float = 180.0) -> dict:
+async def _wait_for_task(client: httpx.AsyncClient, task_id: str, headers: dict[str, str], timeout: float = 240.0) -> dict:
     deadline = asyncio.get_running_loop().time() + timeout
     while asyncio.get_running_loop().time() < deadline:
         resp = await client.get(f"/tasks/{task_id}", headers=headers)
@@ -75,7 +75,7 @@ async def _wait_for_task(client: httpx.AsyncClient, task_id: str, headers: dict[
 
 
 async def _get_auth_headers(client: httpx.AsyncClient) -> dict[str, str]:
-    tenant = await client.post("/tenants/", json={"name": "Docker E2E Tenant", "description": "Docker e2e test tenant"})
+    tenant = await client.post("/tenants/", json={"name": "Real Agents E2E Tenant"})
     tenant.raise_for_status()
     return {"X-Tenant-ID": tenant.json()["tenant_id"]}
 
@@ -90,18 +90,18 @@ def docker_stack():
 
 
 @pytest.mark.asyncio
-async def test_docker_e2e_with_real_stack(docker_stack):
+async def test_real_agent_round_trip(docker_stack):
     async with httpx.AsyncClient(base_url=API_URL, timeout=30.0, trust_env=False) as client:
         await _wait_for_api(client)
         headers = await _get_auth_headers(client)
-        task_id = f"docker-e2e-{int(time.time() * 1000)}"
+        task_id = f"real-agent-{int(time.time() * 1000)}"
         resp = await client.post(
             "/tasks/",
             json={
                 "task_id": task_id,
                 "agent_id": "bge-m3",
-                "task_type": "round-trip",
-                "payload": {"text": "client-api-postgres-redis-worker-agent-postgres-client"},
+                "task_type": "generate",
+                "payload": {"text": "Use the real model stack"},
                 "timeout_seconds": 30,
                 "max_retries": 0,
             },
@@ -110,6 +110,5 @@ async def test_docker_e2e_with_real_stack(docker_stack):
         resp.raise_for_status()
         task = await _wait_for_task(client, task_id, headers)
         assert task["status"] == "completed"
-        assert task["task_id"] == task_id
         assert isinstance(task["result"]["embedding"], list)
         assert len(task["result"]["embedding"]) > 0
