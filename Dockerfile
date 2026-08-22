@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.7
-
 FROM python:3.13-slim-bookworm
 
 WORKDIR /app
@@ -24,8 +22,7 @@ ENV PIP_NO_CACHE_DIR=1 \
 
 COPY pyproject.toml README.md ./
 
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --upgrade pip \
+RUN pip install --upgrade pip \
     && pip install -e .
 
 COPY src ./src
