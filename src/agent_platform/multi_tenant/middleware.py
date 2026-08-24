@@ -1,3 +1,4 @@
+import logging
 import os
 
 from fastapi import HTTPException, Request
@@ -5,6 +6,19 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from src.agent_platform.multi_tenant.models import Tenant, TenantStatus
+
+logger = logging.getLogger(__name__)
+
+
+def _get_api_key_from_headers(request: Request) -> str | None:
+    """Extract an API key from X-API-Key or Authorization: Bearer."""
+    api_key = request.headers.get("X-API-Key")
+    if api_key:
+        return api_key
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        return auth_header[7:]
+    return None
 
 
 class TenantMiddleware(BaseHTTPMiddleware):
@@ -24,51 +38,46 @@ class TenantMiddleware(BaseHTTPMiddleware):
         if path == "/" or path == "/health" or path.startswith("/docs") or path.startswith("/redoc") or path.startswith("/openapi") or path.startswith("/monitoring"):
             return await call_next(request)
 
+        # Allow tenant creation and API-key generation without authentication
+        # (bootstrap: the first key is generated before it can be used).
         if path == "/tenants/" and method == "POST":
             return await call_next(request)
 
-        # Development/test mode:
-        # Inject a predefined tenant without performing authentication.
-        api_key = request.headers.get("X-API-Key")
-        tenant_id = request.headers.get("X-Tenant-ID")
+        if path.startswith("/tenants/") and path.endswith("/api-keys") and method == "POST":
+            return await call_next(request)
 
-        # At least one authentication mechanism is required.
-        if not api_key and not tenant_id:
-            return JSONResponse(status_code=401, content={"detail": "Missing tenant authentication"})
+        api_key = _get_api_key_from_headers(request)
+        tenant_id_hint = request.headers.get("X-Tenant-ID")
+
+        # An API key is always required for authentication.
+        # X-Tenant-ID may be supplied as a routing hint but is NOT
+        # sufficient on its own — it must match the tenant that owns
+        # the supplied API key.
+        if not api_key:
+            return JSONResponse(status_code=401, content={"detail": "Missing API key"})
 
         tenant = None
         if tenant_manager is not None:
-            if api_key:
-                tenant = await tenant_manager.authenticate_api_key(api_key)
-            elif tenant_id:
-                tenant = await tenant_manager.get_tenant(tenant_id)
-            if not tenant or tenant.status != TenantStatus.ACTIVE:
-                return JSONResponse(status_code=401, content={"detail": "Invalid tenant authentication"})
+            tenant = await tenant_manager.authenticate_api_key(api_key)
         else:
-            if api_key:
-                tenant = Tenant(
-                    tenant_id="dummy",
-                    name="Dummy",
-                    status=TenantStatus.ACTIVE,
-                    api_keys=[{"key": api_key, "is_active": True}],
-                )
-            elif tenant_id:
-                tenant = Tenant(
-                    tenant_id=tenant_id,
-                    name=f"Tenant {tenant_id}",
-                    status=TenantStatus.ACTIVE,
-                    api_keys=[],
-                )
-            else:
-                raise HTTPException(status_code=401, detail="Invalid tenant authentication")
+            # Fallback when no tenant_manager is available (e.g., bare
+            # test fixture without dependency override).  We still
+            # generate a hash so the raw key is never stored in memory.
+            from src.agent_platform.security import hash_api_key
 
-        if os.getenv("PYTEST_CURRENT_TEST") and tenant is None:
             tenant = Tenant(
-                tenant_id=tenant_id or "test-tenant",
-                name=f"Tenant {tenant_id or 'test-tenant'}",
+                tenant_id=tenant_id_hint or "test-tenant",
+                name=f"Tenant {tenant_id_hint or 'test'}",
                 status=TenantStatus.ACTIVE,
-                api_keys=[],
+                api_keys=[{"key_hash": hash_api_key(api_key), "is_active": True}],
             )
+
+        if not tenant or tenant.status != TenantStatus.ACTIVE:
+            return JSONResponse(status_code=401, content={"detail": "Invalid tenant authentication"})
+
+        # If the caller provided a tenant hint, verify it matches.
+        if tenant_id_hint and tenant.tenant_id != tenant_id_hint:
+            return JSONResponse(status_code=403, content={"detail": "Tenant mismatch"})
 
         request.state.tenant = tenant
         request.state.tenant_id = tenant.tenant_id
