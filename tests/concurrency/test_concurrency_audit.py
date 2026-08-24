@@ -14,7 +14,6 @@ from src.agent_platform.core.task import Task, TaskStatus
 from src.agent_platform.scheduler.in_memory import InMemoryTaskQueue
 from src.agent_platform.scheduler.scheduler import TaskScheduler
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
