@@ -1,14 +1,24 @@
 # src/agent_platform/api/main.py
 # FastAPI application entrypoint
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from src.agent_platform.api.routes import monitoring, tasks, tenants
+from src.agent_platform.monitoring.rate_limit import RateLimitMiddleware
+from src.agent_platform.monitoring.request_id import (
+    CorrelationLoggingFilter,
+    RequestIdMiddleware,
+)
 from src.agent_platform.multi_tenant.middleware import TenantMiddleware
 from src.agent_platform.runtime import prepare_runtime
+
+# Attach the correlation filter to the root logger so every log line
+# carries the current request ID when available.
+logging.getLogger().addFilter(CorrelationLoggingFilter())
 
 
 @asynccontextmanager
@@ -25,6 +35,8 @@ app = FastAPI(
 )
 
 app.add_middleware(TenantMiddleware)
+app.add_middleware(RequestIdMiddleware)
+app.add_middleware(RateLimitMiddleware)
 
 # Register routes
 app.include_router(tasks.router)
