@@ -121,7 +121,10 @@ async def _get_auth_headers(client: httpx.AsyncClient) -> dict[str, str]:
     )
     tenant_resp.raise_for_status()
     tenant_id = tenant_resp.json()["tenant_id"]
-    return {"X-Tenant-ID": tenant_id}
+    key_resp = await client.post(f"/tenants/{tenant_id}/api-keys")
+    key_resp.raise_for_status()
+    api_key = key_resp.json()["api_key"]
+    return {"X-API-Key": api_key, "X-Tenant-ID": tenant_id}
 
 
 async def run_load(total_tasks: int, concurrency: int) -> LoadMetrics:
