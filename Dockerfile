@@ -6,6 +6,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libpq-dev \
         curl \
+    || (apt-get install -y --fix-missing \
+        libpq-dev \
+        curl) \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PIP_NO_CACHE_DIR=1 \
@@ -18,12 +21,15 @@ ENV PIP_NO_CACHE_DIR=1 \
     NUMEXPR_NUM_THREADS=1 \
     VECLIB_MAXIMUM_THREADS=1 \
     TORCH_NUM_THREADS=1 \
-    TORCH_NUM_INTEROP_THREADS=1
+    TORCH_NUM_INTEROP_THREADS=1 \
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1 \
+    BGE_MODEL_PATH=/app/models/bge-m3
 
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md alembic.ini ./
 
 RUN pip install --upgrade pip \
-    && pip install -e .
+    && pip install --extra-index-url https://download.pytorch.org/whl/cpu -e .
 
 COPY src ./src
 COPY migrations ./migrations
