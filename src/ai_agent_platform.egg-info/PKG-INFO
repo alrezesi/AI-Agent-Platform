@@ -21,6 +21,9 @@ Requires-Dist: opentelemetry-api>=1.21.0
 Requires-Dist: opentelemetry-sdk>=1.21.0
 Requires-Dist: pyyaml>=6.0
 Requires-Dist: jinja2>=3.1.0
+Requires-Dist: sentence-transformers>=3.0.0
+Requires-Dist: transformers>=4.40.0
+Requires-Dist: torch>=2.0.0
 Provides-Extra: dev
 Requires-Dist: pytest>=7.4.0; extra == "dev"
 Requires-Dist: pytest-asyncio>=0.21.0; extra == "dev"
@@ -161,7 +164,7 @@ Run the full suite:
 pytest tests/ -v --cov=src/agent_platform --cov-report=term --cov-report=html
 ```
 
-Current test coverage: 82% with 151 passing tests.
+CI generates the current coverage, test counts, and load-test metrics in `CHAOS_TEST_REPORT.md`.
 
 ---
 
@@ -209,4 +212,3 @@ ai-agent-platform/
 3. Write tests and implement changes
 4. Make sure the test suite passes
 5. Open a pull request
-
