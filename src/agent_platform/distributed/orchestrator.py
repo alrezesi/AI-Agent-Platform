@@ -7,9 +7,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 from ..registry.in_memory import InMemoryAgentRegistry
+from ..scheduler.base import BaseTaskQueue
 from .lock import DistributedLock
 from .node import NodeInfo, NodeStatus
-from .queue import DistributedTaskQueue
 from .registry import DistributedRegistry
 from .worker import WorkerConfig, WorkerNode
 
@@ -25,7 +25,7 @@ class DistributedOrchestrator:
     def __init__(
         self,
         registry: DistributedRegistry,
-        queue: DistributedTaskQueue,
+        queue: BaseTaskQueue,
         redis_client,
     ):
         self.registry = registry
