@@ -42,3 +42,8 @@ class Task(BaseModel):
     retry_count: int = 0
     max_retries: int = 3
     tenant_id: str | None = None
+    # --- Observability / trace-correlation fields ---
+    request_id: str | None = None        # HTTP request ID (from X-Request-ID)
+    execution_id: str | None = None      # unique per execution attempt
+    lease_owner: str | None = None       # worker that currently owns the lease
+    lease_expires_at: datetime | None = None  # when the lease expires

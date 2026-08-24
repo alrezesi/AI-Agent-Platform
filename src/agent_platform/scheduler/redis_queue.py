@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
+import uuid
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 
 try:
     from redis.asyncio import Redis
@@ -19,10 +20,10 @@ if TYPE_CHECKING:
 else:
     RedisClient = Any
 
-from src.agent_platform.core.task import Task, TaskStatus
+from src.agent_platform.core.task import Task, TaskPriority, TaskStatus
 from src.agent_platform.scheduler.base import BaseTaskQueue
 from src.agent_platform.scheduler.models import TaskFilterOptions, TaskStats
-from src.agent_platform.scheduler.postgres_tasks import TaskORM
+from src.agent_platform.scheduler.postgres_tasks import TaskORM, _normalize_json, _to_naive_utc
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,8 @@ class RedisTaskQueue(BaseTaskQueue):
     async def _save_task_to_db(self, task: Task) -> None:
         if not self.session_factory:
             return
+        from sqlalchemy.exc import IntegrityError
+
         async with self.session_factory() as session:
             existing = await session.get(TaskORM, task.task_id)
             if existing:
@@ -70,20 +73,50 @@ class RedisTaskQueue(BaseTaskQueue):
                 existing.payload = task.payload
                 existing.priority = int(task.priority.value)
                 existing.status = task.status.value
-                existing.created_at = task.created_at
-                existing.started_at = task.started_at
-                existing.completed_at = task.completed_at
-                existing.result = task.result
+                existing.created_at = _to_naive_utc(task.created_at)
+                existing.started_at = _to_naive_utc(task.started_at)
+                existing.completed_at = _to_naive_utc(task.completed_at)
+                existing.result = _normalize_json(task.result)
                 existing.error = task.error
                 existing.retry_count = task.retry_count
                 existing.max_retries = task.max_retries
                 existing.timeout_seconds = task.timeout_seconds
                 existing.tenant_id = task.tenant_id
                 existing.lease_owner = getattr(task, "lease_owner", None)
-                existing.lease_expires_at = getattr(task, "lease_expires_at", None)
+                existing.lease_expires_at = _to_naive_utc(getattr(task, "lease_expires_at", None))
+                existing.request_id = getattr(task, "request_id", None)
+                existing.execution_id = getattr(task, "execution_id", None)
+                await session.commit()
             else:
-                session.add(TaskORM.from_task(task))
-            await session.commit()
+                try:
+                    session.add(TaskORM.from_task(task))
+                    await session.commit()
+                except IntegrityError:
+                    # Another concurrent submission inserted the same task_id.
+                    # Fall back to UPDATE so concurrent duplicates are
+                    # idempotent rather than raising a 500.
+                    await session.rollback()
+                    existing = await session.get(TaskORM, task.task_id)
+                    if existing:
+                        existing.agent_id = task.agent_id
+                        existing.task_type = task.type
+                        existing.payload = task.payload
+                        existing.priority = int(task.priority.value)
+                        existing.status = task.status.value
+                        existing.created_at = _to_naive_utc(task.created_at)
+                        existing.started_at = _to_naive_utc(task.started_at)
+                        existing.completed_at = _to_naive_utc(task.completed_at)
+                        existing.result = _normalize_json(task.result)
+                        existing.error = task.error
+                        existing.retry_count = task.retry_count
+                        existing.max_retries = task.max_retries
+                        existing.timeout_seconds = task.timeout_seconds
+                        existing.tenant_id = task.tenant_id
+                        existing.lease_owner = getattr(task, "lease_owner", None)
+                        existing.lease_expires_at = _to_naive_utc(getattr(task, "lease_expires_at", None))
+                        existing.request_id = getattr(task, "request_id", None)
+                        existing.execution_id = getattr(task, "execution_id", None)
+                        await session.commit()
 
     async def _load_task_from_db(self, task_id: str, tenant_id: str | None = None) -> Task | None:
         if not self.session_factory:
@@ -173,6 +206,11 @@ class RedisTaskQueue(BaseTaskQueue):
     async def dequeue(self, worker_id: str | None = None, lease_seconds: float | None = None) -> Task | None:
         """
         Pop the highest priority task from the queue and persist the lease.
+
+        All database state changes (status, started_at, lease_owner, and
+        lease_expires_at) are committed in a single transaction so that
+        there is no window where the task is RUNNING with a NULL lease,
+        which would make it invisible to reclaim_orphaned_tasks().
         """
         await self.reclaim_orphaned_tasks()
 
@@ -194,19 +232,47 @@ class RedisTaskQueue(BaseTaskQueue):
         task.status = TaskStatus.RUNNING
         task.started_at = datetime.now(UTC)
         lease_seconds = lease_seconds or float(self.ttl_seconds)
-        lease_expires_at = datetime.fromtimestamp(datetime.now(UTC).timestamp() + lease_seconds, tz=UTC)
-        await self._save_task_to_db(task)
+        
+        # Use database time for lease expiry to avoid clock-skew with reclaim.
+        if self.session_factory:
+            async with self.session_factory() as session:
+                now_result = await session.execute(select(func.now()))
+                db_now = now_result.scalar()
+                if db_now is None:
+                    db_now = datetime.now(UTC)
+                elif db_now.tzinfo is None:
+                    db_now = db_now.replace(tzinfo=UTC)
+                else:
+                    db_now = db_now.astimezone(UTC)
+                lease_expires_at = db_now + timedelta(seconds=lease_seconds)
+        else:
+            lease_expires_at = datetime.now(UTC) + timedelta(seconds=lease_seconds)
+        task.lease_owner = worker_id
+        task.lease_expires_at = lease_expires_at
+        if not task.execution_id:
+            task.execution_id = uuid.uuid4().hex[:16]
 
+        # Persist all state—including lease metadata—in ONE transaction to
+        # eliminate the window where lease_expires_at is NULL while status
+        # is RUNNING, which would make it invisible to reclaim_orphaned_tasks().
         if self.session_factory:
             async with self.session_factory() as session:
                 orm = await session.get(TaskORM, task_id)
                 if orm:
                     orm.status = task.status.value
-                    orm.started_at = task.started_at
+                    orm.started_at = _to_naive_utc(task.started_at)
                     orm.retry_count = task.retry_count
                     orm.lease_owner = worker_id
-                    orm.lease_expires_at = lease_expires_at
+                    orm.lease_expires_at = _to_naive_utc(lease_expires_at)
+                    orm.execution_id = task.execution_id
+                    orm.request_id = task.request_id
                     await session.commit()
+                else:
+                    # Task not in DB yet; insert it.
+                    session.add(TaskORM.from_task(task))
+                    await session.commit()
+        else:
+            await self._save_task_to_db(task)
 
         try:
             await self.redis.zadd(self.PROCESSING_KEY, {task_id: lease_expires_at.timestamp()})
@@ -232,52 +298,94 @@ class RedisTaskQueue(BaseTaskQueue):
         """
         Requeue tasks that were left RUNNING in PostgreSQL after a worker crash
         or Redis restart.
+
+        Uses an atomic UPDATE with a WHERE clause that checks lease expiry
+        so that concurrent workers cannot double-reclaim the same task.
+        The previous implementation loaded ORM objects via SELECT and committed
+        stale updates inside a loop, creating a lost-update race: if worker B
+        dequeued and re-leased a task between worker A's SELECT and COMMIT,
+        worker A's stale ORM object would overwrite worker B's lease.
         """
         if not self.session_factory:
             return []
 
-        now = datetime.now(UTC)
         reclaimed: list[str] = []
+
         async with self.session_factory() as session:
-            stmt = select(TaskORM).where(TaskORM.status == TaskStatus.RUNNING.value)
-            result = await session.execute(stmt)
-            for orm in result.scalars().all():
-                lease_expires_at = orm.lease_expires_at
-                if lease_expires_at and lease_expires_at > now:
-                    continue
+            # Use database time to avoid clock-skew between Python and PostgreSQL.
+            now_result = await session.execute(select(func.now()))
+            now = now_result.scalar()
+            if now and now.tzinfo is not None:
+                now = now.astimezone(UTC).replace(tzinfo=None)
+            elif now is None:
+                now = datetime.now(UTC).replace(tzinfo=None)
 
-                task = orm.to_task()
-                task.status = TaskStatus.PENDING
+            update_stmt = (
+                update(TaskORM)
+                .where(
+                    TaskORM.status == TaskStatus.RUNNING.value,
+                    TaskORM.lease_expires_at.is_not(None),
+                    TaskORM.lease_expires_at <= now,
+                )
+                .values(
+                    status=TaskStatus.PENDING.value,
+                    started_at=None,
+                    lease_owner=None,
+                    lease_expires_at=None,
+                    retry_count=TaskORM.retry_count + 1,
+                )
+                .returning(TaskORM.task_id, TaskORM.agent_id, TaskORM.priority,
+                           TaskORM.tenant_id, TaskORM.retry_count, TaskORM.payload)
+            )
+
+            # Count matching rows before update
+            count_stmt = select(TaskORM.task_id).where(
+                TaskORM.status == TaskStatus.RUNNING.value,
+                TaskORM.lease_expires_at.is_not(None),
+                TaskORM.lease_expires_at <= now,
+            )
+            count_result = await session.execute(count_stmt)
+            matching = count_result.scalars().all()
+            
+            result = await session.execute(update_stmt)
+            rows = result.fetchall()
+            await session.commit()
+
+            for row in rows:
+                task_id = row[0]
+                task = Task(
+                    task_id=task_id,
+                    agent_id=row[1],
+                    type="reclaimed",
+                    payload=row[5] or {},
+                    priority=TaskPriority(row[2]) if row[2] is not None else TaskPriority.MEDIUM,
+                    status=TaskStatus.PENDING,
+                    retry_count=row[4],
+                    tenant_id=row[3],
+                )
                 task.started_at = None
-                task.retry_count += 1
-
-                orm.status = TaskStatus.PENDING.value
-                orm.started_at = None
-                orm.lease_owner = None
-                orm.lease_expires_at = None
-                orm.retry_count = task.retry_count
-                await session.commit()
-                reclaimed.append(task.task_id)
+                task.completed_at = None
+                reclaimed.append(task_id)
 
                 try:
                     if hasattr(self.redis, "setex"):
-                        await self.redis.setex(self._task_key(task.task_id), self.ttl_seconds, task.model_dump_json())
+                        await self.redis.setex(self._task_key(task_id), self.ttl_seconds, task.model_dump_json())
                         await self.redis.setex(
-                            self._meta_key(task.task_id),
+                            self._meta_key(task_id),
                             self.ttl_seconds,
                             json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
                         )
                     else:
-                        await self.redis.set(self._task_key(task.task_id), task.model_dump_json(), ex=self.ttl_seconds)
+                        await self.redis.set(self._task_key(task_id), task.model_dump_json(), ex=self.ttl_seconds)
                         await self.redis.set(
-                            self._meta_key(task.task_id),
+                            self._meta_key(task_id),
                             json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
                             ex=self.ttl_seconds,
                         )
-                    await self.redis.zadd(self.QUEUE_KEY, {task.task_id: self._priority_score(task)})
-                    await self.redis.zrem(self.PROCESSING_KEY, task.task_id)
+                    await self.redis.zadd(self.QUEUE_KEY, {task_id: self._priority_score(task)})
+                    await self.redis.zrem(self.PROCESSING_KEY, task_id)
                 except Exception:
-                    logger.exception("Redis recovery enqueue failed for %s", task.task_id)
+                    logger.exception("Redis recovery enqueue failed for %s", task_id)
 
         return reclaimed
 
@@ -289,54 +397,60 @@ class RedisTaskQueue(BaseTaskQueue):
         """
         Recover tasks that are PENDING or RUNNING in PostgreSQL but missing from Redis.
         This is intended for startup after Redis restarts.
+
+        Commits all DB changes in a single transaction instead of per-row
+        commits inside a loop, which previously could cause inconsistency
+        if the session was used for concurrent operations.
         """
         if not self.session_factory:
             return []
 
         recovered: list[str] = []
-        now = datetime.now(UTC)
+        now = datetime.now(UTC).replace(tzinfo=None)
         async with self.session_factory() as session:
             stmt = select(TaskORM).where(TaskORM.status.in_([TaskStatus.PENDING.value, TaskStatus.RUNNING.value]))
             result = await session.execute(stmt)
-            for orm in result.scalars().all():
-                task = orm.to_task()
+            orms = result.scalars().all()
+
+            for orm in orms:
                 if orm.status == TaskStatus.RUNNING.value and orm.lease_expires_at and orm.lease_expires_at > now:
-                    task.status = TaskStatus.RUNNING
+                    pass  # still active lease, leave as-is
                 else:
-                    task.status = TaskStatus.PENDING
-                    task.started_at = None
                     orm.status = TaskStatus.PENDING.value
                     orm.started_at = None
                     orm.lease_owner = None
                     orm.lease_expires_at = None
-                    await session.commit()
 
-                try:
-                    current = await self.redis.get(self._task_key(task.task_id))
-                    if current:
-                        continue
-                except Exception:
-                    logger.debug("Redis unavailable during startup recovery for %s", task.task_id, exc_info=True)
+            await session.commit()
 
-                try:
-                    if hasattr(self.redis, "setex"):
-                        await self.redis.setex(self._task_key(task.task_id), self.ttl_seconds, task.model_dump_json())
-                        await self.redis.setex(
-                            self._meta_key(task.task_id),
-                            self.ttl_seconds,
-                            json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
-                        )
-                    else:
-                        await self.redis.set(self._task_key(task.task_id), task.model_dump_json(), ex=self.ttl_seconds)
-                        await self.redis.set(
-                            self._meta_key(task.task_id),
-                            json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
-                            ex=self.ttl_seconds,
-                        )
-                    await self.redis.zadd(self.QUEUE_KEY, {task.task_id: self._priority_score(task)})
-                    recovered.append(task.task_id)
-                except Exception:
-                    logger.exception("Redis startup recovery failed for %s", task.task_id)
+        for orm in orms:
+            task = orm.to_task()
+            try:
+                current = await self.redis.get(self._task_key(task.task_id))
+                if current:
+                    continue
+            except Exception:
+                logger.debug("Redis unavailable during startup recovery for %s", task.task_id, exc_info=True)
+
+            try:
+                if hasattr(self.redis, "setex"):
+                    await self.redis.setex(self._task_key(task.task_id), self.ttl_seconds, task.model_dump_json())
+                    await self.redis.setex(
+                        self._meta_key(task.task_id),
+                        self.ttl_seconds,
+                        json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
+                    )
+                else:
+                    await self.redis.set(self._task_key(task.task_id), task.model_dump_json(), ex=self.ttl_seconds)
+                    await self.redis.set(
+                        self._meta_key(task.task_id),
+                        json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
+                        ex=self.ttl_seconds,
+                    )
+                await self.redis.zadd(self.QUEUE_KEY, {task.task_id: self._priority_score(task)})
+                recovered.append(task.task_id)
+            except Exception:
+                logger.exception("Redis startup recovery failed for %s", task.task_id)
 
         return recovered
 
