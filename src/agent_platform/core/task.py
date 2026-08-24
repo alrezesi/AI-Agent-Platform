@@ -47,3 +47,4 @@ class Task(BaseModel):
     execution_id: str | None = None      # unique per execution attempt
     lease_owner: str | None = None       # worker that currently owns the lease
     lease_expires_at: datetime | None = None  # when the lease expires
+    version: int = 0  # optimistic locking version
