@@ -44,6 +44,7 @@ class TaskORM(Base):
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     request_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     execution_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     @classmethod
     def from_task(cls, task: Task) -> TaskORM:
@@ -67,6 +68,7 @@ class TaskORM(Base):
             lease_expires_at=_to_naive_utc(getattr(task, "lease_expires_at", None)),
             request_id=getattr(task, "request_id", None),
             execution_id=getattr(task, "execution_id", None),
+            version=getattr(task, "version", 0),
         )
 
     def to_task(self) -> Task:
@@ -91,6 +93,7 @@ class TaskORM(Base):
             lease_expires_at=_to_aware_utc(self.lease_expires_at),
             request_id=self.request_id,
             execution_id=self.execution_id,
+            version=self.version or 0,
         )
 
 
