@@ -27,6 +27,7 @@ class TaskScheduler:
         timeout_seconds: int = 30,
         max_retries: int = 3,
         tenant_id: str | None = None,
+        request_id: str | None = None,
     ) -> str:
         """
         Submit a new task to the queue.
@@ -46,6 +47,7 @@ class TaskScheduler:
             timeout_seconds=timeout_seconds,
             max_retries=max_retries,
             tenant_id=tenant_id,
+            request_id=request_id,
         )
         await self.queue.enqueue(task)
         return task.task_id
