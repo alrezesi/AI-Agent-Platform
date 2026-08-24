@@ -58,8 +58,8 @@ addopts = "--cov=src/agent_platform --cov-report=term --cov-report=html"
 markers = [
     "asyncio: marks tests as async",
     "integration: marks tests as integration tests",
-    "chaos: marks chaos engineering tests",
-    "e2e: marks end-to-end tests",
+    "e2e: tests requiring Docker and real services",
+    "chaos: tests requiring Docker and distributed workers",
 ]
 
 [tool.black]
