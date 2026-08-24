@@ -179,8 +179,10 @@ class TenantManager:
             return True
         return False
 
-    async def authenticate_api_key(self, api_key: str) -> Tenant | None:
+    async def authenticate_api_key(self, api_key: str | None) -> Tenant | None:
         """Resolve a tenant from an API key via the hash index."""
+        if not api_key or not isinstance(api_key, str) or not api_key.strip():
+            return None
         tenant_id = self._api_key_index.get(hash_api_key(api_key))
         if not tenant_id:
             return None
