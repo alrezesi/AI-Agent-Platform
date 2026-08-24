@@ -15,11 +15,7 @@ API_URL = os.getenv("PRODUCTION_VERIFY_API_URL", "http://127.0.0.1:8000")
 DOCKER = ["docker", "compose", "-f", str(COMPOSE_FILE)]
 STACK_SERVICES = ["postgres", "redis", "api", "worker-1", "worker-2"]
 
-# skipped because of lack of memory
 pytestmark = pytest.mark.e2e
-
-def _enabled() -> bool:
-    return os.getenv("RUN_DOCKER_E2E", "").lower() in {"1", "true", "yes"}
 
 
 def _docker_available() -> bool:
@@ -42,11 +38,12 @@ def _run(*args: str) -> None:
 
 
 def _up() -> None:
-    _run("up", "-d", "--build", *STACK_SERVICES)
+    _run("up", "-d", *STACK_SERVICES)
 
 
 def _down() -> None:
-    _run("down", "-v")
+    # Preserve Redis/PostgreSQL data for other tests.
+    _run("stop", "api", "worker-1", "worker-2")
 
 
 async def _wait_for_api(client: httpx.AsyncClient, timeout: float = 180.0) -> None:
@@ -77,13 +74,17 @@ async def _wait_for_task(client: httpx.AsyncClient, task_id: str, headers: dict[
 async def _get_auth_headers(client: httpx.AsyncClient) -> dict[str, str]:
     tenant = await client.post("/tenants/", json={"name": "Real Agents E2E Tenant"})
     tenant.raise_for_status()
-    return {"X-Tenant-ID": tenant.json()["tenant_id"]}
+    tenant_id = tenant.json()["tenant_id"]
+    key_resp = await client.post(f"/tenants/{tenant_id}/api-keys")
+    key_resp.raise_for_status()
+    api_key = key_resp.json()["api_key"]
+    return {"X-API-Key": api_key, "X-Tenant-ID": tenant_id}
 
 
 @pytest.fixture(scope="session")
 def docker_stack():
-    if not _enabled() or not _docker_available():
-        pytest.skip("Docker E2E is only run in CI or explicitly enabled")
+    if not _docker_available():
+        pytest.skip("Docker E2E requires a running Docker daemon")
     _up()
     yield
     _down()
