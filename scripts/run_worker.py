@@ -6,10 +6,11 @@ from pathlib import Path
 from redis.asyncio import Redis
 
 from src.agent_platform.core.agent import AgentCapability, AgentRecord, AgentStatus, BaseAgent
+from src.agent_platform.db import get_session_factory
 from src.agent_platform.distributed.node import NodeInfo
-from src.agent_platform.distributed.queue import DistributedTaskQueue
 from src.agent_platform.distributed.registry import DistributedRegistry
 from src.agent_platform.distributed.worker import WorkerConfig, WorkerNode
+from src.agent_platform.scheduler.redis_queue import RedisTaskQueue
 from src.agents.bge_m3_agent import BGEM3Agent
 
 
@@ -124,7 +125,7 @@ async def main() -> None:
         await redis.ping()
         logger.info("Redis connection established")
 
-        queue = DistributedTaskQueue(redis_client=redis)
+        queue = RedisTaskQueue(redis_client=redis, session_factory=get_session_factory())
         distributed_registry = DistributedRegistry(redis_client=redis)
         runtime_registry = RuntimeAgentRegistry(distributed_registry=distributed_registry)
 
