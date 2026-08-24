@@ -11,6 +11,8 @@ src/agent_platform/a2a/delegation.py
 src/agent_platform/a2a/exceptions.py
 src/agent_platform/a2a/protocol.py
 src/agent_platform/a2a/router.py
+src/agent_platform/agents/__init__.py
+src/agent_platform/agents/simple.py
 src/agent_platform/api/__init__.py
 src/agent_platform/api/main.py
 src/agent_platform/api/routes/__init__.py
@@ -54,6 +56,7 @@ src/agent_platform/multi_tenant/exceptions.py
 src/agent_platform/multi_tenant/manager.py
 src/agent_platform/multi_tenant/middleware.py
 src/agent_platform/multi_tenant/models.py
+src/agent_platform/multi_tenant/models_orm.py
 src/agent_platform/multi_tenant/quota.py
 src/agent_platform/multi_tenant/security.py
 src/agent_platform/plugins/__init__.py
