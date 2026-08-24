@@ -31,7 +31,7 @@ x-worker-common: &worker-common
   networks:
     - agent-network
   cpus: "1.0"
-  mem_limit: 2g
+  mem_limit: 4g
 
 services:
   postgres:
