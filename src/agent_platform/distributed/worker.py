@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..core.task import Task, TaskStatus
+from ..scheduler.base import BaseTaskQueue
 from ..scheduler.worker import TaskWorker
 from .node import Node, NodeInfo
-from .queue import DistributedTaskQueue
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class WorkerNode(Node):
     def __init__(
         self,
         info: NodeInfo,
-        queue: DistributedTaskQueue,
+        queue: BaseTaskQueue,
         agent_registry: Any,  # AgentRegistry for retrieving agents
         config: WorkerConfig | None = None,
     ):
