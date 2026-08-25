@@ -36,7 +36,9 @@ def read_junit_summary(path: Path) -> dict[str, int]:
 
 
 def read_load_metrics(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))["metrics"]
+    # utf-8-sig tolerates a BOM that some writers (e.g. PowerShell
+    # Set-Content) prepend, without changing real behavior.
+    return json.loads(path.read_text(encoding="utf-8-sig"))["metrics"]
 
 
 def main() -> int:
@@ -63,8 +65,18 @@ def main() -> int:
     concurrency = read_junit_summary(args.concurrency_junit)
     race = read_junit_summary(args.race_junit)
     security = read_junit_summary(args.security_junit)
-    observability = read_junit_summary(args.observability_junit)
+    # Observability is included only when its JUnit file exists. This keeps
+    # the report accurate for partial/local runs (and the unit-test that does
+    # not generate it) without faking a zero-count suite.
+    observability = (
+        read_junit_summary(args.observability_junit)
+        if args.observability_junit.exists()
+        else None
+    )
     load = read_load_metrics(args.load_json)
+
+    obs_passed = observability["passed"] if observability else 0
+    obs_tests = observability["tests"] if observability else 0
 
     total_passed = (
         unit["passed"]
@@ -74,7 +86,7 @@ def main() -> int:
         + concurrency["passed"]
         + race["passed"]
         + security["passed"]
-        + observability["passed"]
+        + obs_passed
     )
     total_tests = (
         unit["tests"]
@@ -84,41 +96,43 @@ def main() -> int:
         + concurrency["tests"]
         + race["tests"]
         + security["tests"]
-        + observability["tests"]
+        + obs_tests
     )
     status = "PASS" if coverage >= args.minimum else "FAIL"
 
-    report = "\n".join(
-        [
-            "Test Summary",
-            "------------",
-            f"Unit:          {unit['passed']} passed",
-            f"Integration:   {integration['passed']} passed",
-            f"E2E:           {e2e['passed']} passed",
-            f"Chaos:         {chaos['passed']} passed",
-            f"Concurrency:   {concurrency['passed']} passed",
-            f"Race:          {race['passed']} passed",
-            f"Security:      {security['passed']} passed",
-            f"Observability: {observability['passed']} passed",
-            "",
-            f"Coverage:     {coverage:.1f}%",
-            f"Throughput:   {load['throughput']:.1f} tasks/sec",
-            f"p50:          {load['p50']:.2f}s",
-            f"p95:          {load['p95']:.2f}s",
-            f"p99:          {load['p99']:.2f}s",
-            f"Error rate:   {load['error_rate']:.2%}",
-            f"Retry rate:   {load['retry_rate']:.2%}",
-            f"Queue depth:  {load['queue_depth']}",
-            f"CPU:          {load.get('cpu', {})}",
-            f"Memory:       {load.get('memory', {})}",
-            f"Redis latency: {load.get('redis_latency_ms', 0.0):.2f} ms",
-            f"Postgres latency: {load.get('postgres_latency_ms', 0.0):.2f} ms",
-            "",
-            f"Total tests:  {total_passed}/{total_tests} passed",
-            f"Status:       {status}",
-            "",
-        ]
-    )
+    report_lines = [
+        "Test Summary",
+        "------------",
+        f"Unit:          {unit['passed']} passed",
+        f"Integration:   {integration['passed']} passed",
+        f"E2E:           {e2e['passed']} passed",
+        f"Chaos:         {chaos['passed']} passed",
+        f"Concurrency:   {concurrency['passed']} passed",
+        f"Race:          {race['passed']} passed",
+        f"Security:      {security['passed']} passed",
+    ]
+    if observability:
+        report_lines.append(f"Observability: {observability['passed']} passed")
+    report_lines += [
+        "",
+        f"Coverage:     {coverage:.1f}%",
+        f"Throughput:   {load['throughput']:.1f} tasks/sec",
+        f"p50:          {load['p50']:.2f}s",
+        f"p95:          {load['p95']:.2f}s",
+        f"p99:          {load['p99']:.2f}s",
+        f"Error rate:   {load['error_rate']:.2%}",
+        f"Retry rate:   {load['retry_rate']:.2%}",
+        f"Queue depth:  {load['queue_depth']}",
+        f"CPU:          {load.get('cpu', {})}",
+        f"Memory:       {load.get('memory', {})}",
+        f"Redis latency: {load.get('redis_latency_ms', 0.0):.2f} ms",
+        f"Postgres latency: {load.get('postgres_latency_ms', 0.0):.2f} ms",
+        "",
+        f"Total tests:  {total_passed}/{total_tests} passed",
+        f"Status:       {status}",
+        "",
+    ]
+    report = "\n".join(report_lines)
     args.output.write_text(report, encoding="utf-8")
     print(report)
     return 0 if coverage >= args.minimum else 1
