@@ -85,7 +85,10 @@ class RedisTaskQueue(BaseTaskQueue):
                 existing.lease_owner = getattr(task, "lease_owner", None)
                 existing.lease_expires_at = _to_naive_utc(getattr(task, "lease_expires_at", None))
                 existing.request_id = getattr(task, "request_id", None)
+                existing.message_id = getattr(task, "message_id", None)
                 existing.execution_id = getattr(task, "execution_id", None)
+                existing.error_category = getattr(task, "error_category", None)
+                existing.retry_history = _normalize_json(getattr(task, "retry_history", None))
                 await session.commit()
             else:
                 try:
@@ -115,7 +118,10 @@ class RedisTaskQueue(BaseTaskQueue):
                         existing.lease_owner = getattr(task, "lease_owner", None)
                         existing.lease_expires_at = _to_naive_utc(getattr(task, "lease_expires_at", None))
                         existing.request_id = getattr(task, "request_id", None)
+                        existing.message_id = getattr(task, "message_id", None)
                         existing.execution_id = getattr(task, "execution_id", None)
+                        existing.error_category = getattr(task, "error_category", None)
+                        existing.retry_history = _normalize_json(getattr(task, "retry_history", None))
                         await session.commit()
 
     async def _load_task_from_db(self, task_id: str, tenant_id: str | None = None) -> Task | None:
@@ -149,6 +155,8 @@ class RedisTaskQueue(BaseTaskQueue):
                     stmt = stmt.where(TaskORM.priority == int(filters.priority.value))
                 if filters.tenant_id:
                     stmt = stmt.where(TaskORM.tenant_id == filters.tenant_id)
+                if filters.request_id:
+                    stmt = stmt.where(TaskORM.request_id == filters.request_id)
             stmt = stmt.order_by(TaskORM.created_at.desc()).offset(offset).limit(limit)
             result = await session.execute(stmt)
             return [orm.to_task() for orm in result.scalars().all()]
@@ -179,6 +187,11 @@ class RedisTaskQueue(BaseTaskQueue):
         task.status = TaskStatus.PENDING
         task.started_at = None
         task.completed_at = None
+        # Assign a durable queue message id if one was not already provided.
+        # This is the "Queue Message ID" in the distributed trace and is the
+        # Redis zset member that represents this enqueued message.
+        if not task.message_id:
+            task.message_id = f"msg-{uuid.uuid4().hex[:16]}"
         await self._save_task_to_db(task)
 
         try:
@@ -266,6 +279,9 @@ class RedisTaskQueue(BaseTaskQueue):
                     orm.lease_expires_at = _to_naive_utc(lease_expires_at)
                     orm.execution_id = task.execution_id
                     orm.request_id = task.request_id
+                    orm.message_id = task.message_id
+                    orm.error_category = task.error_category
+                    orm.retry_history = _normalize_json(task.retry_history)
                     await session.commit()
                 else:
                     # Task not in DB yet; insert it.
@@ -320,6 +336,29 @@ class RedisTaskQueue(BaseTaskQueue):
             elif now is None:
                 now = datetime.now(UTC).replace(tzinfo=None)
 
+            # Capture the *pre-update* state of candidate rows (old worker,
+            # execution id and retry_count) so we can record an accurate,
+            # operator-readable retry reason. This SELECT is a read-only
+            # snapshot; the authoritative reclaim is the atomic UPDATE below.
+            candidates_stmt = select(
+                TaskORM.task_id,
+                TaskORM.agent_id,
+                TaskORM.priority,
+                TaskORM.tenant_id,
+                TaskORM.lease_owner,
+                TaskORM.execution_id,
+                TaskORM.retry_count,
+                TaskORM.payload,
+                TaskORM.request_id,
+                TaskORM.message_id,
+            ).where(
+                TaskORM.status == TaskStatus.RUNNING.value,
+                TaskORM.lease_expires_at.is_not(None),
+                TaskORM.lease_expires_at <= now,
+            )
+            cand_result = await session.execute(candidates_stmt)
+            candidates: dict[str, tuple] = {r[0]: r for r in cand_result.fetchall()}
+
             update_stmt = (
                 update(TaskORM)
                 .where(
@@ -334,37 +373,54 @@ class RedisTaskQueue(BaseTaskQueue):
                     lease_expires_at=None,
                     retry_count=TaskORM.retry_count + 1,
                 )
-                .returning(TaskORM.task_id, TaskORM.agent_id, TaskORM.priority,
-                           TaskORM.tenant_id, TaskORM.retry_count, TaskORM.payload)
+                .returning(TaskORM.task_id)
             )
 
-            # Count matching rows before update
-            count_stmt = select(TaskORM.task_id).where(
-                TaskORM.status == TaskStatus.RUNNING.value,
-                TaskORM.lease_expires_at.is_not(None),
-                TaskORM.lease_expires_at <= now,
-            )
-            count_result = await session.execute(count_stmt)
-            matching = count_result.scalars().all()
-            
             result = await session.execute(update_stmt)
-            rows = result.fetchall()
-            await session.commit()
+            reclaimed_ids = [r[0] for r in result.fetchall()]
 
-            for row in rows:
-                task_id = row[0]
+            # Record a structured retry entry per reclaimed task using the
+            # pre-update owner/execution. Only tasks actually reclaimed by
+            # THIS transaction (in reclaimed_ids) get an entry; the atomic
+            # UPDATE guarantees a concurrent reclaimer cannot double-count.
+            for task_id in reclaimed_ids:
+                cand = candidates.get(task_id)
+                if cand is None:
+                    continue
+                _, agent_id, priority, tenant_id, old_owner, old_exec, old_retry, payload, req_id, msg_id = cand
+                new_retry = (old_retry or 0) + 1
                 task = Task(
                     task_id=task_id,
-                    agent_id=row[1],
+                    agent_id=agent_id,
                     type="reclaimed",
-                    payload=row[5] or {},
-                    priority=TaskPriority(row[2]) if row[2] is not None else TaskPriority.MEDIUM,
+                    payload=payload or {},
+                    priority=TaskPriority(priority) if priority is not None else TaskPriority.MEDIUM,
                     status=TaskStatus.PENDING,
-                    retry_count=row[4],
-                    tenant_id=row[3],
+                    retry_count=new_retry,
+                    tenant_id=tenant_id,
+                    request_id=req_id,
+                    message_id=msg_id,
                 )
                 task.started_at = None
                 task.completed_at = None
+                task.add_retry_entry(
+                    retry_number=new_retry,
+                    worker_id=old_owner,
+                    execution_id=old_exec,
+                    previous_state=TaskStatus.RUNNING.value,
+                    error_category="lease_expired",
+                    reason=(
+                        "Lease expired; the owning worker was assumed crashed or "
+                        "stalled and the task was reclaimed for re-execution."
+                    ),
+                    lease_expired=True,
+                    next_retry_decision="requeue",
+                )
+                await session.execute(
+                    update(TaskORM)
+                    .where(TaskORM.task_id == task_id)
+                    .values(retry_history=_normalize_json(task.retry_history))
+                )
                 reclaimed.append(task_id)
 
                 try:
@@ -386,6 +442,11 @@ class RedisTaskQueue(BaseTaskQueue):
                     await self.redis.zrem(self.PROCESSING_KEY, task_id)
                 except Exception:
                     logger.exception("Redis recovery enqueue failed for %s", task_id)
+
+            # Single commit for the whole reclaim transaction (state reset +
+            # retry_history entries). This keeps reclaim atomic with respect to
+            # the DB and avoids interleaving with concurrent reclaimers.
+            await session.commit()
 
         return reclaimed
 

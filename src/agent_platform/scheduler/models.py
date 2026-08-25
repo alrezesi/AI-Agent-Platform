@@ -12,6 +12,7 @@ class TaskFilterOptions(BaseModel):
     status: TaskStatus | None = Field(None, description="Filter by task status")
     priority: TaskPriority | None = Field(None, description="Filter by priority")
     tenant_id: str | None = Field(None, description="Multi-tenant isolation")
+    request_id: str | None = Field(None, description="Trace request ID correlation")
     from_date: str | None = Field(None, description="ISO datetime filter (created_at >=)")
     to_date: str | None = Field(None, description="ISO datetime filter (created_at <=)")
 

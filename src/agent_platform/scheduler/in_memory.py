@@ -3,6 +3,7 @@
 
 import asyncio
 import heapq
+import uuid
 from datetime import UTC, datetime
 
 from src.agent_platform.core.task import Task, TaskStatus
@@ -30,6 +31,8 @@ class InMemoryTaskQueue(BaseTaskQueue):
             if task.task_id in self._tasks:
                 return
             task.status = TaskStatus.PENDING
+            if not task.message_id:
+                task.message_id = f"msg-{uuid.uuid4().hex[:16]}"
             self._tasks[task.task_id] = task
             item = TaskQueueItem(
                 task_id=task.task_id,
@@ -92,6 +95,8 @@ class InMemoryTaskQueue(BaseTaskQueue):
                     results = [t for t in results if t.priority == filters.priority]
                 if filters.tenant_id:
                     results = [t for t in results if t.tenant_id == filters.tenant_id]
+                if filters.request_id:
+                    results = [t for t in results if t.request_id == filters.request_id]
             results.sort(key=lambda t: t.created_at, reverse=True)
             return results[offset:offset + limit]
 

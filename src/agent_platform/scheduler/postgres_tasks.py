@@ -43,7 +43,10 @@ class TaskORM(Base):
     lease_owner: Mapped[str | None] = mapped_column(String(64), nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     request_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    message_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     execution_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    error_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    retry_history: Mapped[list[dict[str, object]] | None] = mapped_column(JSON, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     @classmethod
@@ -67,7 +70,10 @@ class TaskORM(Base):
             lease_owner=getattr(task, "lease_owner", None),
             lease_expires_at=_to_naive_utc(getattr(task, "lease_expires_at", None)),
             request_id=getattr(task, "request_id", None),
+            message_id=getattr(task, "message_id", None),
             execution_id=getattr(task, "execution_id", None),
+            error_category=getattr(task, "error_category", None),
+            retry_history=_normalize_json(getattr(task, "retry_history", None)),
             version=getattr(task, "version", 0),
         )
 
@@ -92,7 +98,10 @@ class TaskORM(Base):
             lease_owner=self.lease_owner,
             lease_expires_at=_to_aware_utc(self.lease_expires_at),
             request_id=self.request_id,
+            message_id=self.message_id,
             execution_id=self.execution_id,
+            error_category=self.error_category,
+            retry_history=self.retry_history,
             version=self.version or 0,
         )
 

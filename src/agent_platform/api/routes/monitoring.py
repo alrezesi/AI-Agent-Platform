@@ -5,6 +5,7 @@
 from fastapi import APIRouter, Depends, Query
 
 from src.agent_platform.monitoring.dashboard import DashboardAPI
+from src.agent_platform.monitoring.task_trace import build_task_trace
 
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
 
@@ -15,12 +16,18 @@ def get_dashboard_api() -> DashboardAPI:
     from src.agent_platform.monitoring.logging import LogManager
     from src.agent_platform.monitoring.metrics import MetricRegistry, MetricsCollector
     from src.agent_platform.monitoring.tracing import Tracer
+    from src.agent_platform.runtime import get_scheduler
 
     registry = MetricRegistry()
     metrics = MetricsCollector(registry)
     tracer = Tracer()
     logs = LogManager()
-    return DashboardAPI(metrics, tracer, logs, None, None)
+    scheduler = None
+    try:
+        scheduler = get_scheduler()
+    except Exception:
+        scheduler = None
+    return DashboardAPI(metrics, tracer, logs, None, scheduler)
 
 
 @router.get("/status")
@@ -57,10 +64,19 @@ async def get_metrics(
 
 @router.get("/traces")
 async def get_traces(
-    trace_id: str | None = Query(None, description="Filter by trace ID"),
+    trace_id: str | None = Query(None, description="Filter by request ID, task ID, message ID or execution ID"),
     dashboard: DashboardAPI = Depends(get_dashboard_api),
 ):
-    """Get traces."""
+    """Get traces.
+
+    When ``trace_id`` is provided, the trace is built from the real task
+    store (PostgreSQL + Redis) so an operator can follow a logical request
+    from ``request_id`` through to the final result.
+    """
+    if trace_id and dashboard.scheduler is not None:
+        nodes = await build_task_trace(dashboard.scheduler.queue, trace_id)
+        if nodes:
+            return {"traces": nodes, "count": len(nodes), "source": "task_store"}
     return await dashboard.get_traces(trace_id)
 
 
