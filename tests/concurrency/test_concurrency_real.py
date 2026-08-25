@@ -460,55 +460,31 @@ async def test_concurrent_requeue_after_lease_expiry(redis_queue, clean_db):
         redis_queue.dequeue(worker_id=f"req-w-{i}", lease_seconds=0.5)
         for i in range(5)
     ])
-
     claimed = [c for c in claims if c is not None]
     assert len(claimed) == 5
 
-    # Check DB immediately after dequeue
-    import asyncpg
-    conn = await asyncpg.connect('postgresql://agent:agent123@localhost:5433/agent_platform')
-    rows = await conn.fetch("SELECT task_id, status, lease_expires_at FROM tasks WHERE task_id = ANY($1::text[])", [f'real-req-{i:03d}' for i in range(5)])
-    print('AFTER DEQUEUE:')
-    for row in rows:
-        print(f'  {row["task_id"]}: status={row["status"]}, lease={row["lease_expires_at"]}')
-    
-    # Check active connections with FULL queries
-    rows2 = await conn.fetch("SELECT pid, query, state, wait_event_type, wait_event FROM pg_stat_activity WHERE datname = 'agent_platform'")
-    print('CONNECTIONS:')
-    for row in rows2:
-        print(f'  pid={row["pid"]}, state={row["state"]}, wait={row["wait_event_type"]}:{row["wait_event"]}, query={row["query"]}')
-    
-    await conn.close()
+    # Every claimed task is RUNNING with an active (short) lease.
+    for tid in task_ids:
+        t = await redis_queue.get_task(tid)
+        assert t.status == TaskStatus.RUNNING
+        assert t.lease_owner is not None
 
-    # Wait for leases to expire
+    # Wait for the leases to expire.
     await asyncio.sleep(0.7)
 
-    # Check DB after sleep, before reclaim
-    conn = await asyncpg.connect('postgresql://agent:agent123@localhost:5433/agent_platform')
-    rows = await conn.fetch("SELECT task_id, status, lease_expires_at FROM tasks WHERE task_id = ANY($1::text[])", [f'real-req-{i:03d}' for i in range(5)])
-    print('AFTER SLEEP:')
-    for row in rows:
-        print(f'  {row["task_id"]}: status={row["status"]}, lease={row["lease_expires_at"]}')
-    await conn.close()
-
-    # Reclaim
+    # Reclaim must recover all five expired tasks exactly once and record a retry.
     reclaimed = await redis_queue.reclaim_orphaned_tasks()
-    
-    # DEBUG: check DB after reclaim with raw SQL
-    conn = await asyncpg.connect('postgresql://agent:agent123@localhost:5433/agent_platform')
-    rows = await conn.fetch("SELECT task_id, status, lease_expires_at FROM tasks WHERE task_id = ANY($1::text[])", [f'real-req-{i:03d}' for i in range(5)])
-    print(f'AFTER RECLAIM raw SQL:')
-    for row in rows:
-        print(f'  {row["task_id"]}: status={row["status"]}, lease={row["lease_expires_at"]}')
-    await conn.close()
-    
     assert len(reclaimed) == 5
+    for tid in task_ids:
+        t = await redis_queue.get_task(tid)
+        assert t.status == TaskStatus.PENDING
+        assert t.lease_owner is None
+        assert t.retry_count == 1
 
-    # Tasks should be available for dequeue again
+    # Tasks should be available for dequeue again (exactly one valid claim each).
     results = await asyncio.gather(*[
         redis_queue.dequeue(worker_id=f"req-w2-{i}", lease_seconds=60)
         for i in range(5)
     ])
-
     winners = [r for r in results if r is not None]
     assert len(winners) == 5

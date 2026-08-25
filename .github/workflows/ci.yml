@@ -103,8 +103,14 @@ jobs:
           POSTGRES_URL: postgresql+asyncpg://agent:agent123@localhost:5432/agent_platform
           REDIS_URL: redis://localhost:6379/0
 
+      - name: Observability / distributed-trace tests
+        run: pytest tests/observability --junitxml=reports/observability.xml --cov-append --cov=src/agent_platform --cov-report=term-missing
+        env:
+          POSTGRES_URL: postgresql+asyncpg://agent:agent123@localhost:5432/agent_platform
+          REDIS_URL: redis://localhost:6379/0
+
       - name: Real load test
         run: python scripts/chaos_load_test.py --tasks 10000 --concurrency 500 --output load_test_results.json
 
       - name: Coverage gate
-        run: python scripts/report_coverage.py --minimum 85 --coverage-xml coverage.xml --unit-junit reports/unit.xml --integration-junit reports/integration.xml --e2e-junit reports/e2e.xml --chaos-junit reports/chaos.xml --concurrency-junit reports/concurrency.xml --race-junit reports/race.xml --security-junit reports/security.xml --load-json load_test_results.json --output CHAOS_TEST_REPORT.md
+        run: python scripts/report_coverage.py --minimum 85 --coverage-xml coverage.xml --unit-junit reports/unit.xml --integration-junit reports/integration.xml --e2e-junit reports/e2e.xml --chaos-junit reports/chaos.xml --concurrency-junit reports/concurrency.xml --race-junit reports/race.xml --security-junit reports/security.xml --observability-junit reports/observability.xml --load-json load_test_results.json --output CHAOS_TEST_REPORT.md

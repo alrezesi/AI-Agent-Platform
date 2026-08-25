@@ -50,6 +50,7 @@ def main() -> int:
     parser.add_argument("--concurrency-junit", type=Path, default=Path("reports/concurrency.xml"))
     parser.add_argument("--race-junit", type=Path, default=Path("reports/race.xml"))
     parser.add_argument("--security-junit", type=Path, default=Path("reports/security.xml"))
+    parser.add_argument("--observability-junit", type=Path, default=Path("reports/observability.xml"))
     parser.add_argument("--load-json", type=Path, default=Path("load_test_results.json"))
     parser.add_argument("--output", type=Path, default=Path("CHAOS_TEST_REPORT.md"))
     args = parser.parse_args()
@@ -62,10 +63,29 @@ def main() -> int:
     concurrency = read_junit_summary(args.concurrency_junit)
     race = read_junit_summary(args.race_junit)
     security = read_junit_summary(args.security_junit)
+    observability = read_junit_summary(args.observability_junit)
     load = read_load_metrics(args.load_json)
 
-    total_passed = unit["passed"] + integration["passed"] + e2e["passed"] + chaos["passed"] + concurrency["passed"] + race["passed"] + security["passed"]
-    total_tests = unit["tests"] + integration["tests"] + e2e["tests"] + chaos["tests"] + concurrency["tests"] + race["tests"] + security["tests"]
+    total_passed = (
+        unit["passed"]
+        + integration["passed"]
+        + e2e["passed"]
+        + chaos["passed"]
+        + concurrency["passed"]
+        + race["passed"]
+        + security["passed"]
+        + observability["passed"]
+    )
+    total_tests = (
+        unit["tests"]
+        + integration["tests"]
+        + e2e["tests"]
+        + chaos["tests"]
+        + concurrency["tests"]
+        + race["tests"]
+        + security["tests"]
+        + observability["tests"]
+    )
     status = "PASS" if coverage >= args.minimum else "FAIL"
 
     report = "\n".join(
@@ -79,6 +99,7 @@ def main() -> int:
             f"Concurrency:   {concurrency['passed']} passed",
             f"Race:          {race['passed']} passed",
             f"Security:      {security['passed']} passed",
+            f"Observability: {observability['passed']} passed",
             "",
             f"Coverage:     {coverage:.1f}%",
             f"Throughput:   {load['throughput']:.1f} tasks/sec",
