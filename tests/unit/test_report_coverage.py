@@ -51,6 +51,12 @@ def test_report_coverage_main_writes_summary(tmp_path: Path, monkeypatch) -> Non
     e2e_xml.write_text('<testsuite tests="3" failures="0" errors="0" skipped="0" />', encoding="utf-8")
     chaos_xml = tmp_path / "chaos.xml"
     chaos_xml.write_text('<testsuite tests="2" failures="0" errors="0" skipped="0" />', encoding="utf-8")
+    concurrency_xml = tmp_path / "concurrency.xml"
+    concurrency_xml.write_text('<testsuite tests="5" failures="0" errors="0" skipped="0" />', encoding="utf-8")
+    race_xml = tmp_path / "race.xml"
+    race_xml.write_text('<testsuite tests="3" failures="0" errors="0" skipped="0" />', encoding="utf-8")
+    security_xml = tmp_path / "security.xml"
+    security_xml.write_text('<testsuite tests="4" failures="0" errors="0" skipped="0" />', encoding="utf-8")
 
     load_json = tmp_path / "load.json"
     load_json.write_text(
@@ -87,6 +93,12 @@ def test_report_coverage_main_writes_summary(tmp_path: Path, monkeypatch) -> Non
             str(e2e_xml),
             "--chaos-junit",
             str(chaos_xml),
+            "--concurrency-junit",
+            str(concurrency_xml),
+            "--race-junit",
+            str(race_xml),
+            "--security-junit",
+            str(security_xml),
             "--load-json",
             str(load_json),
             "--output",
@@ -99,5 +111,11 @@ def test_report_coverage_main_writes_summary(tmp_path: Path, monkeypatch) -> Non
     assert exit_code == 0
     report = output.read_text(encoding="utf-8")
     assert "Coverage:     87.3%" in report
-    assert "Unit:        10 passed" in report
+    assert "Unit:          10 passed" in report
+    assert "Integration:   5 passed" in report
+    assert "E2E:           3 passed" in report
+    assert "Chaos:         2 passed" in report
+    assert "Concurrency:   5 passed" in report
+    assert "Race:          3 passed" in report
+    assert "Security:      4 passed" in report
     assert "Throughput:   241.8 tasks/sec" in report

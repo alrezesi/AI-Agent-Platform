@@ -192,6 +192,30 @@ All 6 originally failing tests pass consistently:
 
 Full race + concurrency + chaos suite: **46 passed**.
 
+## Security Audit
+
+The security test suite (`tests/security/test_security_audit.py`) contains **33 tests** covering the
+categories requested. Results are based on actual test execution against the live Redis + PostgreSQL
+stack.
+
+| Category | Tests | Pass | Caveats / Gaps |
+|----------|-------|------|----------------|
+| **Tenant Isolation** | 3 | 3 | Covers read, modify, and cancel isolation at the queue layer. Does **not** cover cross-tenant visibility through the REST API (`/tasks/` endpoint with tenant-scoped queries). |
+| **API Key handling** | 6 | 6 | Covers invalid, missing, `None`, malformed, revoked, and valid keys. Key hashing is verified (`api_key_hash_not_reversible`). No test covers key rotation workflows or entropy/strength validation. |
+| **Authentication bypass** | 5 | 5 | Covers `X-Tenant-ID` without key, no credentials, Bearer tokens, wrong-tenant keys, and suspended tenants. **Gap:** no test for brute-force or credential-stuffing detection. |
+| **Authorization** | 0 | N/A | **No explicit authorization tests exist.** Tenant isolation is enforced, but there is no RBAC, role-based permission matrix, or action-level authorization (e.g., "tenant A can submit but cannot cancel tenant B's tasks" is tested only implicitly via tenant isolation, not via a formal authorization policy). |
+| **IDOR** | 3 | 3 | Covers non-predictable task IDs, tenant-scoped access, and cross-tenant cancellation. **Gap:** no test for sequential/guessable ID enumeration attacks (UUIDs are used, so risk is low). |
+| **Rate Limiting** | 4 | 4 | Covers normal traffic, spam blocking, per-tenant buckets, and per-key isolation. **Gap:** rate limiter is in-memory per-process; distributed deployments with multiple API workers would need a shared store (Redis). |
+| **Input Validation** | 4 | 4 | Covers malformed payloads, oversized payloads, invalid state transitions, and malicious metadata (SQLi, XSS, path traversal). Payloads are parameterized via SQLAlchemy, so injection does not compromise the DB. |
+| **Secret leakage** | 7 | 7 | Covers API keys in payloads/results, Redis cache, task data, hash reversibility, DB URLs, Authorization headers, and exception output. **Gap:** existing log-leakage tests only exercise the scheduler layer with `caplog`; no test captures actual HTTP request logs through the API middleware during a live request flow (see `test_no_secrets_in_api_request_logs`). |
+| **Log leakage** | 3 | 3 | Covers DB URLs, Authorization headers, and exception output in scheduler-layer logs. **Gap:** no test captures `uvicorn` or FastAPI middleware logs during real request processing. |
+
+### Key Findings
+
+- **All 33 existing security tests pass.**
+- The most significant coverage gap is **Authorization**: there are zero explicit tests for role-based access control or action-level permission policies.
+- The second significant gap is **log leakage during live HTTP request processing**: while scheduler-layer logs are clean, the API middleware path has no regression test that sends a real HTTP request with `X-API-Key` / `Authorization` headers and asserts the captured log records contain no raw secrets.
+
 ## Observability: Execution Identity Lifecycle
 
 ```

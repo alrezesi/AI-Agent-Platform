@@ -555,6 +555,87 @@ async def test_no_api_key_in_exception_output(redis_queue, clean_db, caplog):
         assert not re.search(r'Bearer\s+\S+', log_text, re.IGNORECASE)
 
 
+def test_no_secrets_in_api_request_logs(caplog):
+    """HTTP requests with API keys and tenant headers must not leak secrets into logs.
+
+    This covers both a successful auth flow and a failed/rejected auth attempt,
+    capturing the full FastAPI / middleware log output via caplog.
+    """
+    import asyncio
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from src.agent_platform.api.main import app as original_app
+    from src.agent_platform.api.routes import tasks, tenants, monitoring
+    from src.agent_platform.multi_tenant.manager import TenantManager
+    from src.agent_platform.multi_tenant.middleware import TenantMiddleware
+    from src.agent_platform.monitoring.rate_limit import RateLimitMiddleware
+    from src.agent_platform.monitoring.request_id import RequestIdMiddleware
+    from tests.conftest import shared_storage
+
+    # Create a fresh tenant manager backed by the shared in-memory store
+    manager = TenantManager(shared_storage)
+    tenant = asyncio.run(manager.create_tenant("Log Leak Test"))
+    api_key = asyncio.run(manager.generate_api_key(tenant.tenant_id))
+
+    # Build a fresh app instance with the same middleware stack so we
+    # control the tenant_manager that the auth middleware uses.
+    app = FastAPI(title="AI Agent Platform")
+    app.add_middleware(TenantMiddleware, tenant_manager=manager)
+    app.add_middleware(RequestIdMiddleware)
+    app.add_middleware(RateLimitMiddleware)
+    app.include_router(tasks.router)
+    app.include_router(tenants.router)
+    app.include_router(monitoring.router)
+
+    client = TestClient(app)
+
+    # Successful auth flow
+    with caplog.at_level(logging.DEBUG):
+        response = client.post(
+            "/tasks/",
+            json={"agent_id": "agent", "task_type": "echo", "payload": {"test": "data"}},
+            headers={"X-API-Key": api_key, "X-Tenant-ID": tenant.tenant_id},
+        )
+    assert response.status_code == 200
+
+    for record in caplog.records:
+        log_text = record.getMessage()
+        assert api_key not in log_text, f"API key leaked into log: {log_text}"
+        assert "agent123" not in log_text, f"Database password leaked into log: {log_text}"
+
+    # Failed auth flow (invalid key)
+    with caplog.at_level(logging.DEBUG):
+        response = client.post(
+            "/tasks/",
+            json={"agent_id": "agent", "task_type": "echo", "payload": {"test": "data"}},
+            headers={"X-API-Key": "invalid-secret-key-12345", "X-Tenant-ID": tenant.tenant_id},
+        )
+    assert response.status_code in (401, 403)
+
+    for record in caplog.records:
+        log_text = record.getMessage()
+        assert "invalid-secret-key-12345" not in log_text, f"Invalid API key leaked into log: {log_text}"
+
+    for record in caplog.records:
+        log_text = record.getMessage()
+        assert api_key not in log_text, f"API key leaked into log: {log_text}"
+        assert "agent123" not in log_text, f"Database password leaked into log: {log_text}"
+
+    # Failed auth flow (invalid key)
+    with caplog.at_level(logging.DEBUG):
+        response = client.post(
+            "/tasks/",
+            json={"agent_id": "agent", "task_type": "echo", "payload": {"test": "data"}},
+            headers={"X-API-Key": "invalid-secret-key-12345", "X-Tenant-ID": tenant.tenant_id},
+        )
+    assert response.status_code in (401, 403)
+
+    for record in caplog.records:
+        log_text = record.getMessage()
+        assert "invalid-secret-key-12345" not in log_text, f"Invalid API key leaked into log: {log_text}"
+
+
 # ---------------------------------------------------------------------------
 # 10. SQL injection prevention
 # ---------------------------------------------------------------------------

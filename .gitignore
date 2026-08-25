@@ -99,3 +99,4 @@ postgres_data/
 # Misc
 .prof
 ~$*
+debug_raw*.py
