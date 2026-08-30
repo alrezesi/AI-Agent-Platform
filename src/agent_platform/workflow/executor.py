@@ -204,6 +204,7 @@ class WorkflowExecutor:
                     await self._task
                 except asyncio.CancelledError:
                     pass
+            self._running = False
             self.state.pause()
             logger.info(f"Workflow {self.state.workflow.workflow_id} paused")
 

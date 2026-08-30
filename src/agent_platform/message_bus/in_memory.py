@@ -279,6 +279,7 @@ class InMemoryMessageBus(BaseMessageBus):
         if not queue:
             return
         while self._running and agent_id in self._queues:
+            message = None
             try:
                 message = await asyncio.wait_for(queue.get(), timeout=1.0)
                 handler = self._handlers.get(agent_id)
@@ -294,10 +295,11 @@ class InMemoryMessageBus(BaseMessageBus):
                 break
             except Exception as e:
                 logger.error(f"Error delivering message to {agent_id}: {e}")
-                await self._update_delivery_status(
-                    message.message_id, agent_id, MessageDeliveryStatus.FAILED,
-                    last_error=str(e)
-                )
+                if message is not None:
+                    await self._update_delivery_status(
+                        message.message_id, agent_id, MessageDeliveryStatus.FAILED,
+                        last_error=str(e)
+                    )
 
     # --- Persistence ---
 
