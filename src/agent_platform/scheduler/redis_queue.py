@@ -198,20 +198,12 @@ class RedisTaskQueue(BaseTaskQueue):
             existing = await self._task_exists(task.task_id)
             if existing:
                 return
-            if hasattr(self.redis, "setex"):
-                await self.redis.setex(self._task_key(task.task_id), self.ttl_seconds, task.model_dump_json())
-                await self.redis.setex(
-                    self._meta_key(task.task_id),
-                    self.ttl_seconds,
-                    json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
-                )
-            else:
-                await self.redis.set(self._task_key(task.task_id), task.model_dump_json(), ex=self.ttl_seconds)
-                await self.redis.set(
-                    self._meta_key(task.task_id),
-                    json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
-                    ex=self.ttl_seconds,
-                )
+            await self.redis.set(self._task_key(task.task_id), task.model_dump_json(), ex=self.ttl_seconds)
+            await self.redis.set(
+                self._meta_key(task.task_id),
+                json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
+                ex=self.ttl_seconds,
+            )
             await self.redis.zadd(self.QUEUE_KEY, {task.task_id: self._priority_score(task)})
         except Exception:
             logger.exception("Redis enqueue failed for %s; task remains durable in PostgreSQL", task.task_id)
@@ -292,20 +284,12 @@ class RedisTaskQueue(BaseTaskQueue):
 
         try:
             await self.redis.zadd(self.PROCESSING_KEY, {task_id: lease_expires_at.timestamp()})
-            if hasattr(self.redis, "setex"):
-                await self.redis.setex(self._task_key(task_id), self.ttl_seconds, task.model_dump_json())
-                await self.redis.setex(
-                    self._meta_key(task_id),
-                    self.ttl_seconds,
-                    json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
-                )
-            else:
-                await self.redis.set(self._task_key(task_id), task.model_dump_json(), ex=self.ttl_seconds)
-                await self.redis.set(
-                    self._meta_key(task_id),
-                    json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
-                    ex=self.ttl_seconds,
-                )
+            await self.redis.set(self._task_key(task_id), task.model_dump_json(), ex=self.ttl_seconds)
+            await self.redis.set(
+                self._meta_key(task_id),
+                json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
+                ex=self.ttl_seconds,
+            )
         except Exception:
             logger.exception("Redis dequeue bookkeeping failed for %s", task_id)
         return task
@@ -424,20 +408,12 @@ class RedisTaskQueue(BaseTaskQueue):
                 reclaimed.append(task_id)
 
                 try:
-                    if hasattr(self.redis, "setex"):
-                        await self.redis.setex(self._task_key(task_id), self.ttl_seconds, task.model_dump_json())
-                        await self.redis.setex(
-                            self._meta_key(task_id),
-                            self.ttl_seconds,
-                            json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
-                        )
-                    else:
-                        await self.redis.set(self._task_key(task_id), task.model_dump_json(), ex=self.ttl_seconds)
-                        await self.redis.set(
-                            self._meta_key(task_id),
-                            json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
-                            ex=self.ttl_seconds,
-                        )
+                    await self.redis.set(self._task_key(task_id), task.model_dump_json(), ex=self.ttl_seconds)
+                    await self.redis.set(
+                        self._meta_key(task_id),
+                        json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
+                        ex=self.ttl_seconds,
+                    )
                     await self.redis.zadd(self.QUEUE_KEY, {task_id: self._priority_score(task)})
                     await self.redis.zrem(self.PROCESSING_KEY, task_id)
                 except Exception:
@@ -494,20 +470,12 @@ class RedisTaskQueue(BaseTaskQueue):
                 logger.debug("Redis unavailable during startup recovery for %s", task.task_id, exc_info=True)
 
             try:
-                if hasattr(self.redis, "setex"):
-                    await self.redis.setex(self._task_key(task.task_id), self.ttl_seconds, task.model_dump_json())
-                    await self.redis.setex(
-                        self._meta_key(task.task_id),
-                        self.ttl_seconds,
-                        json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
-                    )
-                else:
-                    await self.redis.set(self._task_key(task.task_id), task.model_dump_json(), ex=self.ttl_seconds)
-                    await self.redis.set(
-                        self._meta_key(task.task_id),
-                        json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
-                        ex=self.ttl_seconds,
-                    )
+                await self.redis.set(self._task_key(task.task_id), task.model_dump_json(), ex=self.ttl_seconds)
+                await self.redis.set(
+                    self._meta_key(task.task_id),
+                    json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
+                    ex=self.ttl_seconds,
+                )
                 await self.redis.zadd(self.QUEUE_KEY, {task.task_id: self._priority_score(task)})
                 recovered.append(task.task_id)
             except Exception:
@@ -543,10 +511,7 @@ class RedisTaskQueue(BaseTaskQueue):
         try:
             await self.redis.zrem(self.QUEUE_KEY, task_id)
             await self.redis.zrem(self.PROCESSING_KEY, task_id)
-            if hasattr(self.redis, "setex"):
-                await self.redis.setex(self._task_key(task_id), self.ttl_seconds, task.model_dump_json())
-            else:
-                await self.redis.set(self._task_key(task_id), task.model_dump_json(), ex=self.ttl_seconds)
+            await self.redis.set(self._task_key(task_id), task.model_dump_json(), ex=self.ttl_seconds)
         except Exception:
             logger.exception("Redis cancel bookkeeping failed for %s", task_id)
         return True
@@ -652,20 +617,12 @@ class RedisTaskQueue(BaseTaskQueue):
         """Update an existing task in the store."""
         await self._save_task_to_db(task)
         try:
-            if hasattr(self.redis, "setex"):
-                await self.redis.setex(self._task_key(task.task_id), self.ttl_seconds, task.model_dump_json())
-                await self.redis.setex(
-                    self._meta_key(task.task_id),
-                    self.ttl_seconds,
-                    json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
-                )
-            else:
-                await self.redis.set(self._task_key(task.task_id), task.model_dump_json(), ex=self.ttl_seconds)
-                await self.redis.set(
-                    self._meta_key(task.task_id),
-                    json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
-                    ex=self.ttl_seconds,
-                )
+            await self.redis.set(self._task_key(task.task_id), task.model_dump_json(), ex=self.ttl_seconds)
+            await self.redis.set(
+                self._meta_key(task.task_id),
+                json.dumps({"status": task.status.value, "agent_id": task.agent_id}),
+                ex=self.ttl_seconds,
+            )
             if task.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED, TaskStatus.TIMEOUT):
                 await self.redis.zrem(self.PROCESSING_KEY, task.task_id)
         except Exception:

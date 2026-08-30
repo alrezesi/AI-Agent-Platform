@@ -160,10 +160,6 @@ class _LatencyProxy:
         await asyncio.sleep(self._delay)
         return await self._inner.set(*args, **kwargs)
 
-    async def setex(self, *args, **kwargs):
-        await asyncio.sleep(self._delay)
-        return await self._inner.setex(*args, **kwargs)
-
     async def zadd(self, *args, **kwargs):
         await asyncio.sleep(self._delay)
         return await self._inner.zadd(*args, **kwargs)
