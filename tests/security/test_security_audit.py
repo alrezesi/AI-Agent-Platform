@@ -13,10 +13,8 @@ import re
 import pytest
 
 from src.agent_platform.core.task import TaskStatus
-from src.agent_platform.multi_tenant.manager import TenantManager
-from src.agent_platform.multi_tenant.models import TenantQuota, TenantStatus
-from src.agent_platform.multi_tenant.security import hash_api_key
 from src.agent_platform.monitoring.rate_limit import RateLimiter
+from src.agent_platform.multi_tenant.manager import TenantManager
 from src.agent_platform.scheduler.scheduler import TaskScheduler
 
 
@@ -220,6 +218,7 @@ async def test_wrong_tenant_key_rejected():
     result = await tm.authenticate_api_key(api_key_b)
     assert result is not None
     assert result.tenant_id == tenant_b.tenant_id
+    assert result.tenant_id != tenant_a.tenant_id
 
 
 @pytest.mark.asyncio
@@ -326,13 +325,11 @@ async def test_oversized_payload_stored_correctly(redis_queue, clean_db):
 @pytest.mark.asyncio
 async def test_invalid_task_state_transitions_handled(redis_queue, clean_db):
     """All terminal states must be valid for task status."""
-    from src.agent_platform.core.task import TaskPriority, TaskStatus as TS
-
     scheduler = TaskScheduler(redis_queue)
     await scheduler.submit_task("agent", "test", {}, task_id="state-test-001")
 
     task = await redis_queue.get_task("state-test-001")
-    task.status = TS.COMPLETED
+    task.status = TaskStatus.COMPLETED
     await redis_queue.update_task(task)
 
     final = await redis_queue.get_task("state-test-001")
@@ -357,7 +354,7 @@ async def test_malicious_metadata_does_not_crash(redis_queue, clean_db):
 
     # Verify the table still exists
     async with redis_queue.session_factory() as session:
-        from sqlalchemy import select, text
+        from sqlalchemy import text
         result = await session.execute(text("SELECT 1 FROM tasks WHERE task_id = :tid"), {"tid": "malicious-001"})
         assert result.fetchone() is not None
 
@@ -543,7 +540,6 @@ async def test_no_api_key_in_exception_output(redis_queue, clean_db, caplog):
     api_key = await tm.generate_api_key(tenant.tenant_id)
 
     with caplog.at_level(logging.WARNING):
-        scheduler = TaskScheduler(redis_queue)
         result = await redis_queue.dequeue(worker_id="w-err")
         assert result is None
 
@@ -561,16 +557,14 @@ def test_no_secrets_in_api_request_logs(caplog):
     This covers both a successful auth flow and a failed/rejected auth attempt,
     capturing the full FastAPI / middleware log output via caplog.
     """
-    import asyncio
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from src.agent_platform.api.main import app as original_app
-    from src.agent_platform.api.routes import tasks, tenants, monitoring
-    from src.agent_platform.multi_tenant.manager import TenantManager
-    from src.agent_platform.multi_tenant.middleware import TenantMiddleware
+    from src.agent_platform.api.routes import monitoring, tasks, tenants
     from src.agent_platform.monitoring.rate_limit import RateLimitMiddleware
     from src.agent_platform.monitoring.request_id import RequestIdMiddleware
+    from src.agent_platform.multi_tenant.manager import TenantManager
+    from src.agent_platform.multi_tenant.middleware import TenantMiddleware
     from tests.conftest import shared_storage
 
     # Create a fresh tenant manager backed by the shared in-memory store

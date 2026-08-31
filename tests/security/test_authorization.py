@@ -13,10 +13,10 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from src.agent_platform.api.routes import monitoring, tasks, tenants
-from src.agent_platform.multi_tenant.manager import TenantManager
-from src.agent_platform.multi_tenant.middleware import TenantMiddleware
 from src.agent_platform.monitoring.rate_limit import RateLimitMiddleware
 from src.agent_platform.monitoring.request_id import RequestIdMiddleware
+from src.agent_platform.multi_tenant.manager import TenantManager
+from src.agent_platform.multi_tenant.middleware import TenantMiddleware
 from src.agent_platform.scheduler.scheduler import TaskScheduler
 
 
@@ -214,7 +214,8 @@ async def test_authenticated_tenant_cannot_access_other_tenant_monitoring_data(r
             json={"agent_id": "agent", "task_type": "echo", "payload": {}},
             headers={"X-API-Key": key_b, "X-Tenant-ID": b.tenant_id},
         )
-        rid_b = resp_b.headers["X-Request-ID"]
+        # Tenant B's task must actually exist before we assert A cannot see it.
+        assert resp_b.status_code in (200, 201)
 
         # Tenant A queries the trace for B's request id (monitoring is
         # auth-exempt, but it must only return data the id actually matches;

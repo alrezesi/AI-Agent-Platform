@@ -49,7 +49,9 @@ async def submit_many(
     or intentionally duplicated task IDs.
     """
     if task_id_factory is None:
-        task_id_factory = lambda index: f"audit-task-{index}"
+
+        def task_id_factory(index: int) -> str:
+            return f"audit-task-{index}"
 
     return await asyncio.gather(
         *[

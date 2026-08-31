@@ -19,13 +19,12 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from src.agent_platform.api.routes import tasks, tenants
-from src.agent_platform.core.task import Task, TaskPriority
-from src.agent_platform.multi_tenant.manager import TenantManager
-from src.agent_platform.multi_tenant.middleware import TenantMiddleware
+from src.agent_platform.core.task import Task
 from src.agent_platform.monitoring.rate_limit import RateLimitMiddleware
 from src.agent_platform.monitoring.request_id import RequestIdMiddleware
+from src.agent_platform.multi_tenant.manager import TenantManager
+from src.agent_platform.multi_tenant.middleware import TenantMiddleware
 from src.agent_platform.scheduler.scheduler import TaskScheduler
-from src.agent_platform.scheduler.redis_queue import RedisTaskQueue
 
 
 class _TenantStorage:

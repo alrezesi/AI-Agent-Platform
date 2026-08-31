@@ -24,11 +24,11 @@ from httpx import ASGITransport, AsyncClient
 from src.agent_platform.api.routes import monitoring, tasks, tenants
 from src.agent_platform.api.routes.monitoring import get_dashboard_api
 from src.agent_platform.core.task import TaskStatus
+from src.agent_platform.monitoring.rate_limit import RateLimitMiddleware
+from src.agent_platform.monitoring.request_id import RequestIdMiddleware
 from src.agent_platform.monitoring.task_trace import build_task_trace, verify_trace_chain
 from src.agent_platform.multi_tenant.manager import TenantManager
 from src.agent_platform.multi_tenant.middleware import TenantMiddleware
-from src.agent_platform.monitoring.rate_limit import RateLimitMiddleware
-from src.agent_platform.monitoring.request_id import RequestIdMiddleware
 from src.agent_platform.scheduler.scheduler import TaskScheduler
 
 

@@ -8,16 +8,12 @@ queueing stack under concurrent load.
 """
 
 import asyncio
-import time
 import uuid
-from datetime import UTC, datetime
 
 import pytest
 
-from src.agent_platform.core.task import TaskPriority, TaskStatus
-from src.agent_platform.scheduler.redis_queue import RedisTaskQueue
+from src.agent_platform.core.task import TaskStatus
 from src.agent_platform.scheduler.scheduler import TaskScheduler
-
 
 # ---------------------------------------------------------------------------
 # 100 concurrent task submissions

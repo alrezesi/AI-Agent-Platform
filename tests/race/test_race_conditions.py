@@ -9,15 +9,11 @@ and a live PostgreSQL database — no fakes, no mocks.
 """
 
 import asyncio
-import logging
-import threading
 
 import pytest
 
 from src.agent_platform.core.task import TaskStatus
-from src.agent_platform.scheduler.redis_queue import RedisTaskQueue
 from src.agent_platform.scheduler.scheduler import TaskScheduler
-
 
 # ---------------------------------------------------------------------------
 # 1. Idempotency — concurrent submissions of the same task_id
@@ -61,8 +57,9 @@ async def test_concurrent_completion_does_not_corrupt_state(redis_queue, clean_d
 
     task_a = await redis_queue.dequeue(worker_id="w-a")
     task_b = await redis_queue.dequeue(worker_id="w-b", lease_seconds=999)
-    # task_b should be None because zpopmin is atomic
+    # zpopmin is atomic: only one worker can claim the single queued task.
     assert task_a is not None
+    assert task_b is None
 
     task_a.status = TaskStatus.COMPLETED
     task_a.result = {"worker": "w-a"}
@@ -363,7 +360,7 @@ async def test_concurrent_cancel_during_dequeue(redis_queue, clean_db):
     async def dequeue_task():
         return await redis_queue.dequeue(worker_id="w-a", lease_seconds=30)
 
-    results = await asyncio.gather(cancel_task(), dequeue_task())
+    await asyncio.gather(cancel_task(), dequeue_task())
 
     # After cancel+dequeue, the task must be in a terminal state
     final = await redis_queue.get_task(task_id)

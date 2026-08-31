@@ -24,7 +24,6 @@ from src.agent_platform.recovery.retry import (
 from src.agent_platform.scheduler.in_memory import InMemoryTaskQueue
 from src.agent_platform.scheduler.scheduler import TaskScheduler
 
-
 # ---------------------------------------------------------------------------
 # Tests that use InMemoryTaskQueue (real implementation, no DB/Redis needed)
 # ---------------------------------------------------------------------------
