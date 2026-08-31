@@ -7,12 +7,12 @@ from .in_memory import InMemoryAgentRegistry
 try:
     from .redis_registry import RedisAgentRegistry
 except ImportError:  # pragma: no cover - optional dependency
-    RedisAgentRegistry = None
+    RedisAgentRegistry = None  # type: ignore[misc,assignment]
 
 try:
     from .postgres_registry import PostgresAgentRegistry
 except ImportError:  # pragma: no cover - optional dependency
-    PostgresAgentRegistry = None
+    PostgresAgentRegistry = None  # type: ignore[misc,assignment]
 
 __all__ = [
     "BaseAgentRegistry",

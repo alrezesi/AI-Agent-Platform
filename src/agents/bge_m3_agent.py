@@ -12,12 +12,12 @@ logger = logging.getLogger(__name__)
 class BGEM3Agent(BaseAgent):
     def __init__(self, model_path: str | None = None, device: str = "cpu", **kwargs):
         super().__init__(**kwargs)
-        self.model_path = model_path or os.getenv("BGE_MODEL_PATH", "/app/models/bge-m3")
+        self.model_path: str = model_path or os.getenv("BGE_MODEL_PATH") or "/app/models/bge-m3"
         self.device = device
-        self._model = None
+        self._model: Any = None
 
     async def initialize(self) -> None:
-        model_path = Path(self.model_path or os.getenv("BGE_MODEL_PATH", "/app/models/bge-m3"))
+        model_path = Path(self.model_path)
         if not model_path.exists():
             raise RuntimeError(f"Required local model not found: {model_path}")
         if not model_path.is_dir():

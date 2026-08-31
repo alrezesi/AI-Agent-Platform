@@ -4,13 +4,9 @@
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-try:
-    from redis.asyncio import Redis
-except ImportError:  # pragma: no cover - optional dependency
-    Redis = Any
-
 if TYPE_CHECKING:
-    from redis.asyncio import Redis as RedisClient
+    from redis.asyncio import Redis
+    RedisClient = Redis
 else:
     RedisClient = Any
 

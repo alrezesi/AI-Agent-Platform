@@ -1,20 +1,20 @@
 
 # Scheduling-specific models: filter options, statistics, and queue items
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from src.agent_platform.core.task import TaskPriority, TaskStatus
 
 
 class TaskFilterOptions(BaseModel):
     """Filtering options for listing tasks."""
-    agent_id: str | None = Field(None, description="Filter by target agent ID")
-    status: TaskStatus | None = Field(None, description="Filter by task status")
-    priority: TaskPriority | None = Field(None, description="Filter by priority")
-    tenant_id: str | None = Field(None, description="Multi-tenant isolation")
-    request_id: str | None = Field(None, description="Trace request ID correlation")
-    from_date: str | None = Field(None, description="ISO datetime filter (created_at >=)")
-    to_date: str | None = Field(None, description="ISO datetime filter (created_at <=)")
+    agent_id: str | None = None
+    status: TaskStatus | None = None
+    priority: TaskPriority | None = None
+    tenant_id: str | None = None
+    request_id: str | None = None
+    from_date: str | None = None
+    to_date: str | None = None
 
 
 class TaskStats(BaseModel):

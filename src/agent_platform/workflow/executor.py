@@ -25,7 +25,7 @@ class WorkflowExecutor:
         self.scheduler = scheduler
         self.state = state_manager
         self._running = False
-        self._task = None
+        self._task: asyncio.Task[None] | None = None
 
     async def execute(self) -> None:
         """
@@ -144,6 +144,9 @@ class WorkflowExecutor:
             # Wait for task completion (poll)
             task = await self._wait_for_task(task_id)
 
+            if task is None:
+                raise WorkflowExecutionError(f"Task {task_id} disappeared before completion")
+
             if task.status == TaskStatus.COMPLETED:
                 # Success
                 self.state.set_step_status(step_id, StepStatus.COMPLETED)
@@ -177,6 +180,9 @@ class WorkflowExecutor:
         """
         while True:
             task = await self.scheduler.get_task(task_id)
+            if task is None:
+                await asyncio.sleep(poll_interval)
+                continue
             if task.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.TIMEOUT, TaskStatus.CANCELLED):
                 return task
             await asyncio.sleep(poll_interval)

@@ -100,3 +100,6 @@ postgres_data/
 .prof
 ~$*
 debug_raw*.py
+
+# ML model cache (downloaded, large)
+models/

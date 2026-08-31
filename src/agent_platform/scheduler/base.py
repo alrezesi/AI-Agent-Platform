@@ -16,7 +16,11 @@ class BaseTaskQueue(ABC):
         pass
 
     @abstractmethod
-    async def dequeue(self) -> Task | None:
+    async def dequeue(
+        self,
+        worker_id: str | None = None,
+        lease_seconds: float | None = None,
+    ) -> Task | None:
         """
         Pop the highest-priority task (FIFO within same priority).
         Returns None if queue is empty.

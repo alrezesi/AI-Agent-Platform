@@ -4,17 +4,15 @@
 import asyncio
 import json
 import logging
-from typing import TYPE_CHECKING, Any
-
-try:
-    from redis.asyncio import Redis
-except ImportError:  # pragma: no cover - optional dependency
-    Redis = Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
-    from redis.asyncio import Redis as RedisClient
+    from redis.asyncio import Redis
+    from redis.asyncio.client import PubSub
+    RedisClient = Redis
 else:
     RedisClient = Any
+    PubSub = Any
 
 from src.agent_platform.core.message import Message, MessageStatus
 from src.agent_platform.message_bus.base import BaseMessageBus, MessageHandler
@@ -35,7 +33,7 @@ class RedisMessageBus(BaseMessageBus):
         self.message_ttl = message_ttl_seconds
         self._running = False
         self._handlers: dict[str, MessageHandler] = {}
-        self._pubsub = None
+        self._pubsub: PubSub | None = None
         self._pubsub_task: asyncio.Task | None = None
         self._worker_tasks: list[asyncio.Task] = []
         self._receive_queues: dict[str, asyncio.Queue] = {}
@@ -51,8 +49,9 @@ class RedisMessageBus(BaseMessageBus):
             return
         self._running = True
 
-        self._pubsub = self.redis.pubsub()
-        await self._pubsub.connect()
+        pubsub = self.redis.pubsub()
+        self._pubsub = pubsub
+        await pubsub.connect()
 
         self._pubsub_task = asyncio.create_task(self._pubsub_listener())
 
@@ -173,7 +172,8 @@ class RedisMessageBus(BaseMessageBus):
         else:
             channels.append("msgbus:broadcast")
 
-        await self._pubsub.subscribe(*channels)
+        if self._pubsub is not None:
+            await self._pubsub.subscribe(*channels)
 
         if self._running:
             task = asyncio.create_task(self._deliver_messages(agent_id))
@@ -190,7 +190,8 @@ class RedisMessageBus(BaseMessageBus):
             del self._handlers[agent_id]
         if agent_id in self._receive_queues:
             del self._receive_queues[agent_id]
-        await self._pubsub.unsubscribe()
+        if self._pubsub is not None:
+            await self._pubsub.unsubscribe()
         logger.info(f"Agent {agent_id} unsubscribed")
         return True
 
@@ -234,6 +235,9 @@ class RedisMessageBus(BaseMessageBus):
         """Listen to Redis pubsub and push messages to agent queues."""
         while self._running:
             try:
+                if self._pubsub is None:
+                    await asyncio.sleep(1)
+                    continue
                 message = await self._pubsub.get_message(
                     ignore_subscribe_messages=True,
                     timeout=1.0
@@ -274,11 +278,15 @@ class RedisMessageBus(BaseMessageBus):
                 msg_id_bytes = await self.redis.rpop(queue_key)
                 if msg_id_bytes:
                     # Convert bytes to string
-                    msg_id = msg_id_bytes.decode('utf-8')
+                    msg_id = (
+                        msg_id_bytes.decode("utf-8")
+                        if isinstance(msg_id_bytes, bytes)
+                        else str(msg_id_bytes)
+                    )
                     store_key = f"{self._store_prefix}{msg_id}"
                     data = await self.redis.get(store_key)
                     if data:
-                        msg = Message.model_validate_json(data)
+                        msg = cast(Message, Message.model_validate_json(data))
                         await queue.put(msg)
                         logger.debug(f"Retrieved message {msg_id} from queue for {agent_id}")
                     else:

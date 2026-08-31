@@ -12,13 +12,13 @@ logger = logging.getLogger(__name__)
 class GemmaAgent(BaseAgent):
     def __init__(self, model_path: str | None = None, device: str = "cpu", **kwargs):
         super().__init__(**kwargs)
-        self.model_path = model_path or os.getenv("GEMMA_MODEL_PATH", "/app/models/gemma-2-2b-it")
+        self.model_path: str = model_path or os.getenv("GEMMA_MODEL_PATH") or "/app/models/gemma-2-2b-it"
         self.device = device
         self._model: Any = None
         self._tokenizer: Any = None
 
     async def initialize(self) -> None:
-        model_path = Path(self.model_path or os.getenv("GEMMA_MODEL_PATH", "/app/models/gemma-2-2b-it"))
+        model_path = Path(self.model_path)
         if not model_path.exists():
             raise RuntimeError(f"Required local model not found: {model_path}")
         if not model_path.is_dir():

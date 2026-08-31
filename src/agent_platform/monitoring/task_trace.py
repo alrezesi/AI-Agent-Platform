@@ -60,7 +60,11 @@ async def build_task_trace(
     """
     # 1. request_id correlation (the canonical entry point per the audit)
     try:
-        by_request = await queue.list_tasks(TaskFilterOptions(request_id=trace_id), limit=1000, offset=0)
+        by_request = await queue.list_tasks(
+            TaskFilterOptions(request_id=trace_id),
+            limit=1000,
+            offset=0,
+        )
         if by_request:
             return [_trace_node(t) for t in by_request]
     except Exception:

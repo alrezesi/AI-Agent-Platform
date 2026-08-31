@@ -3,15 +3,11 @@
 
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
-
-try:
-    from redis.asyncio import Redis
-except ImportError:  # pragma: no cover - optional dependency
-    Redis = Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
-    from redis.asyncio import Redis as RedisClient
+    from redis.asyncio import Redis
+    RedisClient = Redis
 else:
     RedisClient = Any
 
@@ -97,12 +93,13 @@ class DistributedTaskQueue(BaseTaskQueue):
         if not result:
             return None
 
-        task_id = result[0][0]
+        task_id_value = result[0][0]
+        task_id = task_id_value.decode("utf-8") if isinstance(task_id_value, bytes) else str(task_id_value)
         data = await self.redis.get(self._task_key(task_id))
         if not data:
             return None
 
-        task = Task.model_validate_json(data)
+        task = cast(Task, Task.model_validate_json(data))
         task.status = TaskStatus.RUNNING
         task.started_at = datetime.now(UTC)
 
@@ -127,17 +124,18 @@ class DistributedTaskQueue(BaseTaskQueue):
     async def reclaim_expired_tasks(self) -> list[str]:
         """Move expired processing tasks back to the pending queue."""
         now_ts = datetime.now(UTC).timestamp()
-        expired = await self.redis.zrange(self.PROCESSING_KEY, 0, -1, withscores=True)
+        expired = cast(list[tuple[Any, Any]], await self.redis.zrange(self.PROCESSING_KEY, 0, -1, withscores=True))
         reclaimed: list[str] = []
         for task_id_bytes, deadline in expired:
             task_id = task_id_bytes.decode("utf-8") if isinstance(task_id_bytes, bytes) else task_id_bytes
-            if deadline > now_ts:
+            task_id = str(task_id)
+            if float(deadline) > now_ts:
                 continue
             data = await self.redis.get(self._task_key(task_id))
             if not data:
                 await self.redis.zrem(self.PROCESSING_KEY, task_id)
                 continue
-            task = Task.model_validate_json(data)
+            task = cast(Task, Task.model_validate_json(data))
             if task.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED, TaskStatus.TIMEOUT):
                 await self.redis.zrem(self.PROCESSING_KEY, task_id)
                 continue
@@ -164,18 +162,19 @@ class DistributedTaskQueue(BaseTaskQueue):
         result = await self.redis.zrange(self.QUEUE_KEY, 0, 0, withscores=True)
         if not result:
             return None
-        task_id = result[0][0]
+        task_id_value = result[0][0]
+        task_id = task_id_value.decode("utf-8") if isinstance(task_id_value, bytes) else str(task_id_value)
         data = await self.redis.get(self._task_key(task_id))
         if not data:
             return None
-        return Task.model_validate_json(data)
+        return cast(Task, Task.model_validate_json(data))
 
     async def cancel(self, task_id: str, tenant_id: str | None = None) -> bool:
         """Cancel a pending task."""
         data = await self.redis.get(self._task_key(task_id))
         if not data:
             return False
-        task = Task.model_validate_json(data)
+        task = cast(Task, Task.model_validate_json(data))
         if tenant_id and task.tenant_id != tenant_id:
             return False
         if task.status not in (TaskStatus.PENDING, TaskStatus.SCHEDULED):
@@ -196,7 +195,7 @@ class DistributedTaskQueue(BaseTaskQueue):
         data = await self.redis.get(self._task_key(task_id))
         if not data:
             return None
-        task = Task.model_validate_json(data)
+        task = cast(Task, Task.model_validate_json(data))
         if tenant_id and task.tenant_id != tenant_id:
             return None
         return task
@@ -222,7 +221,7 @@ class DistributedTaskQueue(BaseTaskQueue):
             data = await self.redis.get(key)
             if not data:
                 continue
-            task = Task.model_validate_json(data)
+            task = cast(Task, Task.model_validate_json(data))
             if filters:
                 if filters.agent_id and task.agent_id != filters.agent_id:
                     continue
@@ -254,7 +253,7 @@ class DistributedTaskQueue(BaseTaskQueue):
             data = await self.redis.get(key)
             if not data:
                 continue
-            task = Task.model_validate_json(data)
+            task = cast(Task, Task.model_validate_json(data))
             if tenant_id and task.tenant_id != tenant_id:
                 continue
             stats.total += 1
@@ -274,7 +273,7 @@ class DistributedTaskQueue(BaseTaskQueue):
 
     async def size(self) -> int:
         """Get the number of pending tasks in the queue."""
-        return await self.redis.zcard(self.QUEUE_KEY)
+        return int(await self.redis.zcard(self.QUEUE_KEY))
 
     async def update_task(self, task: Task) -> None:
         """Update a task in the distributed store."""

@@ -6,13 +6,9 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Any
 
-try:
-    from redis.asyncio import Redis
-except ImportError:  # pragma: no cover - optional dependency
-    Redis = Any
-
 if TYPE_CHECKING:
-    from redis.asyncio import Redis as RedisClient
+    from redis.asyncio import Redis
+    RedisClient = Redis
 else:
     RedisClient = Any
 
@@ -31,7 +27,7 @@ class DistributedLock:
         self.redis = redis_client
         self.key = f"dist:lock:{key}"
         self.ttl_seconds = ttl_seconds
-        self._lock_id = None
+        self._lock_id: str | None = None
         self._locked = False
 
     async def acquire(self, wait_timeout: float | None = None) -> bool:

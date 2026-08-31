@@ -69,6 +69,7 @@ async def list_tasks(
         status=status,
         priority=priority,
         tenant_id=tenant_id,
+        request_id=None,
         from_date=None,
         to_date=None,
     )

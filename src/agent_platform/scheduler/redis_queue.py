@@ -6,17 +6,13 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import func, select, update
 
-try:
-    from redis.asyncio import Redis
-except ImportError:  # pragma: no cover - optional dependency
-    Redis = Any
-
 if TYPE_CHECKING:
-    from redis.asyncio import Redis as RedisClient
+    from redis.asyncio import Redis
+    RedisClient = Redis
 else:
     RedisClient = Any
 
@@ -131,7 +127,7 @@ class RedisTaskQueue(BaseTaskQueue):
             orm = await session.get(TaskORM, task_id)
             if not orm:
                 return None
-            task = orm.to_task()
+            task = cast(Task, orm.to_task())
             if tenant_id and task.tenant_id != tenant_id:
                 return None
             return task
@@ -229,7 +225,7 @@ class RedisTaskQueue(BaseTaskQueue):
             return None
 
         task_id_value = result[0][0]
-        task_id = task_id_value.decode("utf-8") if isinstance(task_id_value, bytes) else task_id_value
+        task_id = task_id_value.decode("utf-8") if isinstance(task_id_value, bytes) else str(task_id_value)
         task = await self.get_task(task_id)
         if not task:
             return None
@@ -361,7 +357,7 @@ class RedisTaskQueue(BaseTaskQueue):
             )
 
             result = await session.execute(update_stmt)
-            reclaimed_ids = [r[0] for r in result.fetchall()]
+            reclaimed_ids = [str(r[0]) for r in result.fetchall()]
 
             # Record a structured retry entry per reclaimed task using the
             # pre-update owner/execution. Only tasks actually reclaimed by
@@ -489,7 +485,7 @@ class RedisTaskQueue(BaseTaskQueue):
             result = await self.redis.zrange(self.QUEUE_KEY, 0, 0, withscores=True)
             if result:
                 task_id_value = result[0][0]
-                task_id = task_id_value.decode("utf-8") if isinstance(task_id_value, bytes) else task_id_value
+                task_id = task_id_value.decode("utf-8") if isinstance(task_id_value, bytes) else str(task_id_value)
                 task = await self.get_task(task_id)
                 if task:
                     return task
@@ -521,7 +517,7 @@ class RedisTaskQueue(BaseTaskQueue):
         try:
             data = await self.redis.get(self._task_key(task_id))
             if data:
-                task = Task.model_validate_json(data)
+                task = cast(Task, Task.model_validate_json(data))
                 if tenant_id and task.tenant_id != tenant_id:
                     return None
                 return task
@@ -552,7 +548,7 @@ class RedisTaskQueue(BaseTaskQueue):
             data = await self.redis.get(key)
             if not data:
                 continue
-            task = Task.model_validate_json(data)
+            task = cast(Task, Task.model_validate_json(data))
             if filters:
                 if filters.agent_id and task.agent_id != filters.agent_id:
                     continue
@@ -585,7 +581,7 @@ class RedisTaskQueue(BaseTaskQueue):
             data = await self.redis.get(key)
             if not data:
                 continue
-            task = Task.model_validate_json(data)
+            task = cast(Task, Task.model_validate_json(data))
             if tenant_id and task.tenant_id != tenant_id:
                 continue
             stats.total += 1
@@ -609,7 +605,7 @@ class RedisTaskQueue(BaseTaskQueue):
             tasks = await self._list_tasks_from_db(None, limit=100000, offset=0)
             return sum(1 for task in tasks if task.status == TaskStatus.PENDING)
         try:
-            return await self.redis.zcard(self.QUEUE_KEY)
+            return int(await self.redis.zcard(self.QUEUE_KEY))
         except Exception:
             raise
 

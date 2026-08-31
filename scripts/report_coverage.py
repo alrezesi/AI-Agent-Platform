@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 from xml.etree import ElementTree as ET
 
 
@@ -35,10 +36,14 @@ def read_junit_summary(path: Path) -> dict[str, int]:
     }
 
 
-def read_load_metrics(path: Path) -> dict:
+def read_load_metrics(path: Path) -> dict[str, Any]:
     # utf-8-sig tolerates a BOM that some writers (e.g. PowerShell
     # Set-Content) prepend, without changing real behavior.
-    return json.loads(path.read_text(encoding="utf-8-sig"))["metrics"]
+    data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8-sig"))
+    metrics = data["metrics"]
+    if not isinstance(metrics, dict):
+        raise ValueError("load metrics must be a JSON object")
+    return metrics
 
 
 def main() -> int:

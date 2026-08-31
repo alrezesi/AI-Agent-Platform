@@ -4,7 +4,7 @@
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, cast
 
 from .context import ConversationContext
 from .delegation import DelegationManager, DelegationRequest
@@ -156,7 +156,7 @@ class ParallelCollaboration(CollaborationPattern):
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Aggregate results
-        aggregated = {
+        aggregated: dict[str, Any] = {
             "results": [],
             "errors": [],
             "success_count": 0,
@@ -165,11 +165,13 @@ class ParallelCollaboration(CollaborationPattern):
 
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                aggregated["errors"].append({"subtask_index": i, "error": str(result)})
-                aggregated["failure_count"] += 1
+                cast(list[dict[str, Any]], aggregated["errors"]).append(
+                    {"subtask_index": i, "error": str(result)}
+                )
+                aggregated["failure_count"] = cast(int, aggregated["failure_count"]) + 1
             else:
-                aggregated["results"].append(result)
-                aggregated["success_count"] += 1
+                cast(list[Any], aggregated["results"]).append(result)
+                aggregated["success_count"] = cast(int, aggregated["success_count"]) + 1
 
         return aggregated
 
@@ -337,6 +339,7 @@ class CollaborationOrchestrator:
         Execute a collaboration pattern.
         pattern_type: "chain", "parallel", "hierarchical"
         """
+        pattern: CollaborationPattern
         if pattern_type == "chain":
             pattern = ChainCollaboration(self.router, self.delegation_manager, kwargs.get('agent_chain'))
         elif pattern_type == "parallel":

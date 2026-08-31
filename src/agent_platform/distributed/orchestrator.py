@@ -112,7 +112,9 @@ class DistributedOrchestrator:
                 # Get all registered nodes
                 nodes = await self.registry.list_nodes()
                 for node_data in nodes:
-                    node_id = node_data.get('node_id')
+                    node_id = str(node_data.get('node_id') or "")
+                    if not node_id:
+                        continue
                     last_heartbeat_str = node_data.get('last_heartbeat')
                     if last_heartbeat_str:
                         last_heartbeat = datetime.fromisoformat(last_heartbeat_str)
