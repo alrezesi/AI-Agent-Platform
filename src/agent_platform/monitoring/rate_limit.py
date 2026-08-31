@@ -13,7 +13,6 @@ no tenant_id is available, the client IP is used as a fallback.
 import asyncio
 import logging
 import time
-from typing import Optional
 
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware

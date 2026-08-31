@@ -237,7 +237,7 @@ class RedisTaskQueue(BaseTaskQueue):
         task.status = TaskStatus.RUNNING
         task.started_at = datetime.now(UTC)
         lease_seconds = lease_seconds or float(self.ttl_seconds)
-        
+
         # Use database time for lease expiry to avoid clock-skew with reclaim.
         if self.session_factory:
             async with self.session_factory() as session:

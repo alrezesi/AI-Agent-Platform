@@ -13,7 +13,6 @@ from src.agent_platform.distributed.worker import WorkerConfig, WorkerNode
 from src.agent_platform.scheduler.redis_queue import RedisTaskQueue
 from src.agents.bge_m3_agent import BGEM3Agent
 
-
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",

@@ -29,8 +29,8 @@ class BGEM3Agent(BaseAgent):
         os.environ.setdefault("OPENBLAS_NUM_THREADS", os.getenv("OPENBLAS_NUM_THREADS", "1"))
         os.environ.setdefault("NUMEXPR_NUM_THREADS", os.getenv("NUMEXPR_NUM_THREADS", "1"))
         os.environ.setdefault("VECLIB_MAXIMUM_THREADS", os.getenv("VECLIB_MAXIMUM_THREADS", "1"))
-        from sentence_transformers import SentenceTransformer
         import torch
+        from sentence_transformers import SentenceTransformer
 
         torch.set_num_threads(int(os.getenv("TORCH_NUM_THREADS", "1")))
         torch.set_num_interop_threads(int(os.getenv("TORCH_NUM_INTEROP_THREADS", "1")))
