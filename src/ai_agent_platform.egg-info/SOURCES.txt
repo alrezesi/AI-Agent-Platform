@@ -49,6 +49,9 @@ src/agent_platform/monitoring/__init__.py
 src/agent_platform/monitoring/dashboard.py
 src/agent_platform/monitoring/logging.py
 src/agent_platform/monitoring/metrics.py
+src/agent_platform/monitoring/rate_limit.py
+src/agent_platform/monitoring/request_id.py
+src/agent_platform/monitoring/task_trace.py
 src/agent_platform/monitoring/tracing.py
 src/agent_platform/multi_tenant/__init__.py
 src/agent_platform/multi_tenant/authentication.py
@@ -80,6 +83,7 @@ src/agent_platform/registry/postgres_registry.py
 src/agent_platform/registry/redis_registry.py
 src/agent_platform/scheduler/__init__.py
 src/agent_platform/scheduler/base.py
+src/agent_platform/scheduler/exceptions.py
 src/agent_platform/scheduler/in_memory.py
 src/agent_platform/scheduler/models.py
 src/agent_platform/scheduler/postgres_tasks.py
