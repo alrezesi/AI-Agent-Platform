@@ -160,6 +160,81 @@ services:
       WORKER_PORT: "8002"
       BGE_MAX_SEQ_LENGTH: "512"
 
+  worker-3:
+    <<: *worker-common
+    container_name: agent_platform_worker_3
+    environment:
+      TASK_QUEUE_BACKEND: redis
+      REDIS_URL: redis://redis:6379/1
+      DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
+      EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
+      BGE_MODEL_PATH: /app/models/bge-m3
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /app/models
+      PYTHONUNBUFFERED: "1"
+      TOKENIZERS_PARALLELISM: "false"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      VECLIB_MAXIMUM_THREADS: "1"
+      TORCH_NUM_THREADS: "1"
+      TORCH_NUM_INTEROP_THREADS: "1"
+      WORKER_ID: worker-3
+      WORKER_PORT: "8003"
+      BGE_MAX_SEQ_LENGTH: "512"
+
+  worker-4:
+    <<: *worker-common
+    container_name: agent_platform_worker_4
+    environment:
+      TASK_QUEUE_BACKEND: redis
+      REDIS_URL: redis://redis:6379/1
+      DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
+      EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
+      BGE_MODEL_PATH: /app/models/bge-m3
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /app/models
+      PYTHONUNBUFFERED: "1"
+      TOKENIZERS_PARALLELISM: "false"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      VECLIB_MAXIMUM_THREADS: "1"
+      TORCH_NUM_THREADS: "1"
+      TORCH_NUM_INTEROP_THREADS: "1"
+      WORKER_ID: worker-4
+      WORKER_PORT: "8004"
+      BGE_MAX_SEQ_LENGTH: "512"
+
+  worker-5:
+    <<: *worker-common
+    container_name: agent_platform_worker_5
+    environment:
+      TASK_QUEUE_BACKEND: redis
+      REDIS_URL: redis://redis:6379/1
+      DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
+      EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
+      BGE_MODEL_PATH: /app/models/bge-m3
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /app/models
+      PYTHONUNBUFFERED: "1"
+      TOKENIZERS_PARALLELISM: "false"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      VECLIB_MAXIMUM_THREADS: "1"
+      TORCH_NUM_THREADS: "1"
+      TORCH_NUM_INTEROP_THREADS: "1"
+      WORKER_ID: worker-5
+      WORKER_PORT: "8005"
+      BGE_MAX_SEQ_LENGTH: "512"
+
 volumes:
   postgres_data:
 
