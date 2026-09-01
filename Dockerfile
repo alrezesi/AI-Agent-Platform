@@ -1,15 +1,27 @@
-FROM python:3.13-slim-bookworm
+FROM python:3.13-alpine AS builder
 
 WORKDIR /app
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        libpq-dev \
-        curl \
-    || (apt-get install -y --fix-missing \
-        libpq-dev \
-        curl) \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache \
+    musl-dev \
+    gcc \
+    g++ \
+    postgresql-dev \
+    curl
+
+COPY pyproject.toml README.md alembic.ini ./
+
+RUN pip install --upgrade pip \
+    && pip install --extra-index-url https://download.pytorch.org/whl/cpu -e . \
+    && pip install uvicorn
+
+FROM python:3.13-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache \
+    libpq \
+    curl
 
 ENV PIP_NO_CACHE_DIR=1 \
     PYTHONUNBUFFERED=1 \
@@ -26,10 +38,8 @@ ENV PIP_NO_CACHE_DIR=1 \
     TRANSFORMERS_OFFLINE=1 \
     BGE_MODEL_PATH=/app/models/bge-m3
 
-COPY pyproject.toml README.md alembic.ini ./
-
-RUN pip install --upgrade pip \
-    && pip install --extra-index-url https://download.pytorch.org/whl/cpu -e .
+COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
 COPY src ./src
 COPY migrations ./migrations

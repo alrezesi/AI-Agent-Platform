@@ -34,7 +34,19 @@ class TenantMiddleware(BaseHTTPMiddleware):
 
             tenant_manager = get_tenant_manager()
 
-        if path == "/" or path == "/health" or path.startswith("/docs") or path.startswith("/redoc") or path.startswith("/openapi") or path.startswith("/monitoring"):
+        # Only public, non-tenant-scoped paths are exempt from authentication.
+        # ``/monitoring/*`` is NOT exempt: it can return another tenant's task
+        # payloads (e.g. via ``/monitoring/traces?trace_id=...``), so it must
+        # require the same API-key authentication as every other tenant-scoped
+        # endpoint.  The audit flagged this as an unauthenticated cross-tenant
+        # data leak / IDOR.
+        if (
+            path == "/"
+            or path == "/health"
+            or path.startswith("/docs")
+            or path.startswith("/redoc")
+            or path.startswith("/openapi")
+        ):
             return await call_next(request)
 
         # Allow tenant creation and API-key generation without authentication

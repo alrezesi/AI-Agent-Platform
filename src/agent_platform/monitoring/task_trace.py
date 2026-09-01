@@ -1,4 +1,3 @@
-
 # Distributed task tracing across the existing observable system.
 
 """
@@ -12,8 +11,16 @@ request through the system:
     Worker ID  -> Execution ID -> Retry history -> Final result
 
 It reuses the authoritative task state already persisted by the scheduler
-(request_id, message_id, tenant_id, lease_owner=worker_id, execution_id,
+(tenant_id, request_id, message_id, lease_owner=worker_id, execution_id,
 retry_count, retry_history, status, result/error).
+
+Tenant isolation:
+    ``build_task_trace`` requires ``tenant_id`` (it is a required parameter,
+    not optional) and filters every task it returns so that callers can
+    only observe tasks belonging to that tenant.  This closes the audit's
+    unauthenticated / cross-tenant IDOR where guessing another tenant's
+    ``task_id`` / ``request_id`` / ``message_id`` / ``execution_id`` would
+    return that tenant's payload, result, and error.
 """
 
 from __future__ import annotations
@@ -45,6 +52,7 @@ def _trace_node(task: Task) -> dict[str, Any]:
 async def build_task_trace(
     queue: Any,
     trace_id: str,
+    tenant_id: str,
 ) -> list[dict[str, Any]]:
     """
     Build traces for a logical request from the real task store.
@@ -55,13 +63,26 @@ async def build_task_trace(
       * message_id   (a specific queue message)
       * execution_id (a specific execution attempt)
 
+    ``tenant_id`` is REQUIRED: every candidate task must belong to that
+    tenant or it is filtered out, no matter how the ``trace_id`` was
+    matched.  This is the tenant-isolation invariant that prevents the
+    IDOR the audit flagged.
+
     Returns a list of trace nodes (one per correlated task).  An empty list
-    means the trace id was not found in the observable system.
+    means either (a) the trace id was not found in the observable system,
+    or (b) the id matched one or more tasks belonging to a *different*
+    tenant — both surface as "not found" from the caller's perspective,
+    never as another tenant's data leak.
     """
+    if tenant_id is None or not str(tenant_id):
+        # Tenant scope is mandatory.  Fail closed (empty result) rather
+        # than silently returning every tenant's data.
+        return []
+
     # 1. request_id correlation (the canonical entry point per the audit)
     try:
         by_request = await queue.list_tasks(
-            TaskFilterOptions(request_id=trace_id),
+            TaskFilterOptions(request_id=trace_id, tenant_id=tenant_id),
             limit=1000,
             offset=0,
         )
@@ -70,20 +91,28 @@ async def build_task_trace(
     except Exception:
         pass
 
-    # 2. task_id correlation
-    task = await queue.get_task(trace_id)
+    # 2. task_id correlation — get_task already enforces tenant scope when
+    # ``tenant_id`` is supplied, but be defensive and double-check.
+    task = await queue.get_task(trace_id, tenant_id=tenant_id)
     if task is not None:
         return [_trace_node(task)]
 
-    # 3/4. message_id / execution_id correlation (one bounded scan)
+    # 3/4. message_id / execution_id correlation (one bounded scan, scoped
+    # to the caller's tenant).  This is the path the audit specifically
+    # flagged: without tenant filtering here, guessing another tenant's
+    # ``message_id`` or ``execution_id`` would return that tenant's data.
     try:
-        all_tasks = await queue.list_tasks(TaskFilterOptions(), limit=1000, offset=0)
+        scoped_tasks = await queue.list_tasks(
+            TaskFilterOptions(tenant_id=tenant_id),
+            limit=1000,
+            offset=0,
+        )
     except Exception:
-        all_tasks = []
-    by_message = [t for t in all_tasks if t.message_id == trace_id]
+        scoped_tasks = []
+    by_message = [t for t in scoped_tasks if t.message_id == trace_id]
     if by_message:
         return [_trace_node(t) for t in by_message]
-    by_exec = [t for t in all_tasks if t.execution_id == trace_id]
+    by_exec = [t for t in scoped_tasks if t.execution_id == trace_id]
     if by_exec:
         return [_trace_node(t) for t in by_exec]
 

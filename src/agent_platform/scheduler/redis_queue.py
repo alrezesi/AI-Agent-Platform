@@ -312,6 +312,21 @@ class RedisTaskQueue(BaseTaskQueue):
         lease_expires_at) are committed in a single transaction so that
         there is no window where the task is RUNNING with a NULL lease,
         which would make it invisible to reclaim_orphaned_tasks().
+
+        The lease-claim UPDATE goes through the **same version-checked
+        path as ``_save_task_to_db``**: it reads the row's current
+        ``version`` and executes ``UPDATE ... WHERE task_id = ? AND
+        version = ?``, incrementing ``version`` on success.  This closes
+        the lost-update race where a concurrent ``cancel()`` or
+        ``update_task()`` on the same ``task_id`` could be silently
+        overwritten by ``dequeue()``'s unguarded commit (or vice versa)
+        with no ``TaskWriteConflictError`` raised by either side.
+
+        If the conditional UPDATE matches zero rows, the row was modified
+        by a concurrent writer between our SELECT and UPDATE — the
+        pre-existing claim is invalid.  We then skip this ``task_id``
+        and continue to the next queue item rather than treating the
+        claim as successful.
         """
         await self.reclaim_orphaned_tasks()
 
@@ -328,6 +343,13 @@ class RedisTaskQueue(BaseTaskQueue):
         task_id = task_id_value.decode("utf-8") if isinstance(task_id_value, bytes) else str(task_id_value)
         task = await self.get_task(task_id)
         if not task:
+            return None
+
+        # If the task is not PENDING/SCHEDULED any more (e.g. someone else
+        # just cancelled it, or it is already RUNNING with a live lease),
+        # refuse to claim it.  We still hold the Redis zpopmin token, but
+        # we must not transition a non-pending row into RUNNING.
+        if task.status not in (TaskStatus.PENDING, TaskStatus.SCHEDULED):
             return None
 
         task.status = TaskStatus.RUNNING
@@ -353,28 +375,93 @@ class RedisTaskQueue(BaseTaskQueue):
         if not task.execution_id:
             task.execution_id = uuid.uuid4().hex[:16]
 
-        # Persist all state—including lease metadata—in ONE transaction to
-        # eliminate the window where lease_expires_at is NULL while status
-        # is RUNNING, which would make it invisible to reclaim_orphaned_tasks().
+        # Persist all state — including lease metadata — in ONE
+        # version-checked transaction.  This both (a) eliminates the
+        # window where ``lease_expires_at`` is NULL while status is
+        # RUNNING (so reclaim_orphaned_tasks() sees the lease) and
+        # (b) participates in optimistic locking: the row's
+        # ``version`` is read, the UPDATE is guarded by it, and on a
+        # successful match ``version`` is incremented.
         if self.session_factory:
             async with self.session_factory() as session:
                 orm = await session.get(TaskORM, task_id)
-                if orm:
-                    orm.status = task.status.value
-                    orm.started_at = _to_naive_utc(task.started_at)
-                    orm.retry_count = task.retry_count
-                    orm.lease_owner = worker_id
-                    orm.lease_expires_at = _to_naive_utc(lease_expires_at)
-                    orm.execution_id = task.execution_id
-                    orm.request_id = task.request_id
-                    orm.message_id = task.message_id
-                    orm.error_category = task.error_category
-                    orm.retry_history = _normalize_json(task.retry_history)
-                    await session.commit()
-                else:
-                    # Task not in DB yet; insert it.
+                if orm is None:
+                    # Task not in DB yet (e.g. dequeue raced a still-
+                    # inflight enqueue).  Fall back to a regular insert;
+                    # the row didn't exist so there is no prior
+                    # ``version`` to clash with.  If a concurrent
+                    # inserter wins, the IntegrityError we raise below
+                    # is propagated.
+                    task.version = 0
                     session.add(TaskORM.from_task(task))
+                    try:
+                        await session.commit()
+                    except Exception:
+                        await session.rollback()
+                        logger.warning(
+                            "dequeue: lost insert race for %s; skipping",
+                            task_id,
+                        )
+                        return None
+                else:
+                    expected_version = orm.version
+                    self._apply_task_fields(orm, task)
+                    stmt = (
+                        update(TaskORM)
+                        .where(
+                            TaskORM.task_id == task_id,
+                            TaskORM.version == expected_version,
+                        )
+                        .values(
+                            **self._orm_values(
+                                orm, new_version=expected_version + 1
+                            ),
+                        )
+                        .returning(TaskORM.task_id)
+                    )
+                    result_upd = await session.execute(stmt)
+                    if result_upd.scalar_one_or_none() is None:
+                        # Another writer changed the row between our
+                        # SELECT and our UPDATE.  Do NOT treat the
+                        # claim as successful — the audit's lost-update
+                        # bug is precisely this window.  Skip this
+                        # task_id and let the caller try the next
+                        # queue item.
+                        await session.rollback()
+                        fresh = await session.get(TaskORM, task_id)
+                        logger.info(
+                            "dequeue: version conflict for %s "
+                            "(expected %s, actual %s); skipping",
+                            task_id,
+                            expected_version,
+                            getattr(fresh, "version", None),
+                        )
+                        # Best-effort: re-enqueue so the task is not
+                        # silently lost when our claim is skipped.
+                        try:
+                            task.status = TaskStatus.PENDING
+                            task.lease_owner = None
+                            task.lease_expires_at = None
+                            task.started_at = None
+                            await self.redis.zadd(
+                                self.QUEUE_KEY,
+                                {task_id: self._priority_score(task)},
+                            )
+                            await self.redis.zrem(self.PROCESSING_KEY, task_id)
+                            await self.redis.set(
+                                self._task_key(task_id),
+                                task.model_dump_json(),
+                                ex=self.ttl_seconds,
+                            )
+                        except Exception:
+                            logger.exception(
+                                "dequeue: failed to re-enqueue after "
+                                "version conflict for %s",
+                                task_id,
+                            )
+                        return None
                     await session.commit()
+                    task.version = expected_version + 1
         else:
             await self._save_task_to_db(task)
 

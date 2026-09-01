@@ -545,3 +545,185 @@ this correctness audit.
 | `ENGINEERING_AUDIT.md` complete | yes | yes | **PASS** | this document |
 | No debug files/secrets remain | yes | yes | **PASS** | ad-hoc root debug scripts removed |
 | Full relevant test suite passes | yes | yes | **PASS** | 135 audit tests passing (313 total) |
+
+---
+
+## Addendum — Two Real Bugs Closed After the Audit (Monitoring IDOR + dequeue() Lost-Update)
+
+A follow-up audit of the same code surface found **two real bugs** that
+were not addressed by the original Deep Engineering Audit (the
+acceptance criteria above are still all met; this section is additive).
+The two bugs, the fixes, and the new tests are described below.  No
+new features, no new endpoints, no mocks — every fix is exercised
+end-to-end against real PostgreSQL + Redis.
+
+### Bug 1 — Unauthenticated cross-tenant data leak via /monitoring/*
+
+**What it was.**  TenantMiddleware.dispatch exempted every path
+starting with /monitoring from authentication entirely
+(src/agent_platform/multi_tenant/middleware.py).  The monitoring
+router (src/agent_platform/api/routes/monitoring.py) did not require
+a tenant dependency, and uild_task_trace()
+(src/agent_platform/monitoring/task_trace.py) performed no
+	enant_id filtering at all.
+
+**Why it was real.**  Any unauthenticated caller who knew or guessed a
+real 	ask_id / equest_id / message_id / execution_id could
+retrieve another tenant's full task record (status, retry history,
+worker, result, error) via GET /monitoring/traces?trace_id=<id>.  This
+is a tenant-isolation break and an IDOR vulnerability: the trace
+endpoint correlated 	ask_id ? equest_id ? message_id ?
+execution_id, so guessing any one of them surfaced the rest.
+
+**Fix.**
+
+1. The /monitoring exemption was deleted from TenantMiddleware —
+   /, /health, /docs, /redoc, /openapi remain exempt (they
+   are not tenant-scoped data); /monitoring/* now goes through the
+   same API-key authentication as /tasks/*.
+2. Every monitoring route that can return task-level data
+   (/traces, /tasks, /logs) takes a required 	enant_id
+   dependency resolved from equest.state (set by TenantMiddleware)
+   and threads it into the data layer.
+3. uild_task_trace() now requires 	enant_id as a *required*,
+   non-optional parameter.  When supplied, every match path
+   (request_id, task_id, message_id, execution_id) is filtered to the
+   caller's tenant — no cross-tenant data can ever be returned.
+4. DashboardAPI.get_system_status, get_task_stats,
+   get_metrics_data, get_traces, get_logs accept 	enant_id
+   and scope task-derived counts/entries to it.  Process-wide gauges
+   (uptime, active agent count) remain in the response because they
+   are not tenant data.
+5. There is no admin/operator role in this codebase, so monitoring is
+   strictly tenant-scoped like every other endpoint (no cross-tenant
+   observability is offered, by design).
+
+**New / updated tests.**  The previous
+	est_authenticated_tenant_cannot_access_other_tenant_monitoring_data
+only asserted that a *wrong/guessed* trace_id returned nothing.  It is
+now replaced with one that exercises the real bug:
+
+* Creates tenant B's real task, captures its real 	ask_id,
+  equest_id, message_id, execution_id.
+* Attempts the fetch with **no API key at all** (must be 401, no
+  leak).
+* Attempts the fetch with **tenant A's valid API key** (must return
+  count == 0; tenant B's payload secret must never appear in the
+  response).
+* Sanity check that tenant B's own key still sees tenant B's task
+  (fix didn't accidentally lock out same-tenant reads).
+
+Three more tests added:
+
+* 	est_monitoring_endpoints_require_authentication — explicit 401
+  test for **every** /monitoring/* endpoint that touches tenant
+  data (/status, /agents, /tasks, /metrics, /traces,
+  /logs, /health).
+* 	est_monitoring_tasks_endpoint_is_tenant_scoped — confirms
+  /monitoring/tasks returns zero stats to tenant A while tenant B
+  has 3 tasks.
+* 	est_monitoring_logs_endpoint_is_tenant_scoped — confirms the logs
+  endpoint echoes the caller's tenant id and is rejected without a
+  key.
+
+	ests/integration/test_api.py::test_monitoring_* were updated to
+assert the same 401-then-200 contract.  	ests/observability/test_distributed_trace.py
+was updated to pass 	enant_id to uild_task_trace (required by the
+new signature) and to authenticate before calling
+/monitoring/traces?trace_id=....
+
+### Bug 2 — dequeue() bypasses optimistic locking
+
+**What it was.**  RedisTaskQueue.dequeue()
+(src/agent_platform/scheduler/redis_queue.py) read the task from the
+DB, mutated the TaskORM object in-place (status, started_at,
+lease_owner, lease_expires_at, execution_id), and committed — without
+checking the row's ersion and without incrementing it.  Every other
+write path (_save_task_to_db / _orm_values) goes through
+UPDATE ... WHERE version = <expected> and bumps ersion on
+success.
+
+**Why it was real.**  A concurrent cancel() (or another
+update_task() completing a stale retry) on the same 	ask_id could
+have its change silently overwritten by dequeue()'s unguarded commit,
+or vice versa — with no TaskWriteConflictError raised by either
+side, because dequeue() never touched ersion.  This defeats the
+lost-update protection the ersion column was built for,
+specifically on the PENDING ? RUNNING transition.
+
+**Fix.**  The RUNNING/lease-claim write in dequeue() now goes
+through the same version-checked update path as _save_task_to_db:
+
+1. Read the current row (and its ersion) under the same session
+   used for the UPDATE.
+2. Run UPDATE tasks SET ..., version = version + 1 WHERE task_id = ?
+   AND version = ? RETURNING task_id.
+3. On a successful match, ersion is bumped exactly once.
+4. On a zero-row match (another writer changed the row between our
+   SELECT and UPDATE), dequeue() now skips this 	ask_id and
+   best-effort re-enqueues it so the task is not silently lost.
+   TaskWriteConflictError is the same exception used by every
+   other writer — no new locking primitive was introduced.
+5. A defensive guard was added at the top of dequeue(): if the
+   popped row is not PENDING/SCHEDULED, the claim is refused
+   (returns None) rather than transitioning a non-pending row into
+   RUNNING.  Combined with (4), the lease claim now participates
+   in optimistic locking exactly like every other writer.
+
+**New / updated tests.**  	ests/race/test_race_conditions.py gained
+three new regression tests (all backed by real PostgreSQL + Redis, no
+mocks):
+
+* 	est_dequeue_vs_cancel_version_conflict_no_lost_update — uses an
+  syncio.Barrier(2) to force the dangerous interleaving between
+  dequeue() and cancel() on the same 	ask_id.  Exactly **2**
+  concurrent worker paths, no more.  Asserts the persisted state is
+  either RUNNING (dequeue won) or CANCELLED (cancel won), the
+  ersion column reflects every successful write (exactly 1
+  successful write per race), and no field from the losing writer is
+  silently merged into the winner.
+* 	est_dequeue_vs_update_task_version_conflict_no_lost_update — same
+  pattern between dequeue() and a stale update_task().  Asserts
+  the stale esult/error fields never appear in the persisted row
+  when dequeue() wins, and that dequeue() never merges lease
+  fields into a COMPLETED row when update_task() wins.
+* 	est_dequeue_increments_version_on_every_successful_claim — guards
+  against a future regression that reintroduces the unguarded commit:
+  every successful dequeue() lease-claim must bump ersion by
+  exactly 1.
+
+The existing 	est_concurrent_cancel_during_dequeue was tightened to
+match the new contract: it now asserts that the two operations are
+mutually exclusive (cancel wins ? row is CANCELLED, version 1;
+dequeue wins ? row is RUNNING with a lease, version 1, cancel raised
+TaskWriteConflictError if it raced) and explicitly forbids the
+"both succeeded silently" outcome that the audit closes.
+
+### Worker-count constraint
+
+Per the task's concurrency scope, the local Docker stack, every
+worker process spun up by this task, and the new race regression tests
+run with **exactly 2 worker instances**, not more.  docker-compose.yml
+was reduced from 5 workers (worker-1..worker-5) to 2
+(worker-1, worker-2), and the corresponding
+.github/workflows/ci.yml step (docker compose up -d --build ...)
+was reduced to the same.  The audit's existing 10-worker concurrency
+test (	ests/concurrency/test_concurrency_real.py::test_10_workers_compete_for_*)
+is untouched — that constraint belongs to the original Deep Engineering
+Audit and is preserved verbatim.
+
+### Test counts after this addendum
+
+| Suite | Before | After | ? | Result |
+| ----- | ----: | ----: | -: | -----: |
+| Concurrency (in-memory + Redis + PostgreSQL) | 51 | 51 | 0 | **PASS** |
+| Race conditions | 18 | 21 | +3 | **PASS** |
+| Security (authorization + IDOR + input + audit + regression + monitoring) | 62 | 65 | +3 | **PASS** |
+| Observability / distributed trace | 4 | 4 | 0 | **PASS** |
+| Integration | 15 | 15 | 0 | **PASS** |
+| Unit | 157 | 157 | 0 | **PASS** |
+| **Grand total** | **307** | **313** | **+6** | **PASS** |
+
+Every existing acceptance criterion from the original Deep Engineering
+Audit still passes; the additions close two real bugs without
+introducing any new feature, endpoint, or capability.
