@@ -14,10 +14,10 @@ All required audit suites were executed against the **real** stack
 | Concurrency (in-memory) | 30 | PASS |
 | Concurrency (Redis + PostgreSQL) | 21 | PASS |
 | **Concurrency total** | **51** | **PASS** |
-| Race conditions | 16 | PASS |
-| Security (isolation + API key + auth + IDOR + input validation + authorization + secret leakage) | 53 | PASS |
+| Race conditions | 18 | PASS |
+| Security (isolation + API key + auth + IDOR + input validation + authorization + secret leakage) | 62 | PASS |
 | Observability / distributed trace | 4 | PASS |
-| **Grand total** | **124** | **PASS** |
+| **Grand total** | **135** | **PASS** |
 
 Key honest conclusions:
 
@@ -28,13 +28,30 @@ Key honest conclusions:
 * Task **creation** is **At-Most-Once per client-supplied `task_id`**
   (idempotent deduplication); **queue delivery** and **claim** are
   **At-Most-Once** (atomic `ZPOPMIN`/`UPDATE ... WHERE`).
-* One **real concurrency bug was found and fixed during this audit**:
-  `reclaim_orphaned_tasks()` rebuilt the Redis cache entry for a reclaimed
-  task *without* `request_id` / `message_id`, erasing trace correlation.
-  It is now fixed and protected by the distributed-trace regression test.
+* **Real concurrency bugs were found and fixed during this audit:**
+  * `reclaim_orphaned_tasks()` rebuilt the Redis cache entry for a
+    reclaimed task *without* `request_id` / `message_id`, erasing trace
+    correlation. Now fixed and protected by the distributed-trace
+    regression test.
+  * `Task.version` existed for optimistic locking but the version check
+    was **never implemented** — concurrent terminal writes to the same task
+    silently clobbered each other (lost update, last-write-wins). Now fixed
+    with a version-checked `UPDATE ... WHERE version = :v` and protected by
+    two deterministic lost-update regression tests.
 * The pre-existing `reclaim_orphaned_tasks()` lost-update / double-reclaim
   race is re-audited and proven fixed under concurrency (atomic
   `UPDATE ... WHERE`, no read-modify-write of stale ORM objects).
+* **`IdempotencyManager` was dead code** — defined but never wired into the
+  queue. It has been rewritten to support optional Redis backing
+  (`SET NX` cross-process lock, records at `idempotency:{key}` with TTL)
+  while preserving an in-memory `asyncio.Lock` + `dict` fallback, and is
+  now wired into `RedisTaskQueue.enqueue()` (first gate) and
+  `update_task()` (complete on terminal states).
+* **Load-test / coverage tooling brittleness fixed:** `chaos_load_test.py`
+  now discovers workers dynamically and raises on zero-duration metrics
+  instead of emitting a silent zero-throughput report; `report_coverage.py`
+  raises `ValueError` when throughput and latencies are all-zero rather
+  than writing a misleading report.
 * A real end-to-end trace is exposed through the **existing**
   `/monitoring/traces` interface, built from the real task store — no
   fabricated trace object.
@@ -162,9 +179,9 @@ At-Least-Once; business side effects are not exactly-once.
 
 ## Race Condition Audit
 
-16 race-condition tests pass (`tests/race/test_race_conditions.py` +
-covered by `tests/concurrency`). At least one **real** race is
-identified, reproduced, fixed, and protected.
+18 race-condition tests pass (`tests/race/test_race_conditions.py` +
+covered by `tests/concurrency`). **Two real races** are identified,
+reproduced, fixed, and protected.
 
 ### Real Race #1 — `reclaim_orphaned_tasks()` lost-update / double reclaim
 
@@ -204,6 +221,39 @@ identified, reproduced, fixed, and protected.
   `dequeue`/`update_task` round-trips them back into PostgreSQL.
 * **Regression:** `tests/observability/test_distributed_trace.py`.
 
+### Real Race #3 — `Task.version` lost update (optimistic locking never enforced)
+
+* **Symptom:** The `Task.version` field is documented as an optimistic
+  locking guard, but `_save_task_to_db()` never checked it. Two workers
+  that read the same task version and both wrote a terminal state
+  (e.g. concurrent `update_task` to `COMPLETED`) silently clobbered each
+  other — last-write-wins. The loser's result overwrote the winner's with
+  no error, so a completed task could report the wrong `result`.
+* **Reproduction:** `test_lost_update_is_prevented_by_version_check` and
+  `test_lost_update_prevents_silent_result_loss` use an `asyncio.Barrier`
+  to force the dangerous interleaving deterministically: both workers
+  read version 0, then both write. Before the fix both writes "succeed";
+  after the fix exactly one wins and the loser raises
+  `TaskWriteConflictError`.
+* **Root cause:** `_save_task_to_db` performed an unconditional update;
+  the `version` column was incremented but never used as a `WHERE` guard,
+  so the increment was cosmetic.
+* **Fix:** `_save_task_to_db` now issues a version-checked
+  `UPDATE ... WHERE task_id = :id AND version = :expected_version` with
+  `RETURNING task_id`. Zero matching rows → raise
+  `TaskWriteConflictError(task_id, expected_version, actual_version)`.
+  After a successful commit, the new version is synced back onto the
+  in-memory `task.version` so the downstream Redis write in `update_task`
+  stays consistent with the authoritative DB.
+* **Why the fix closes the race:** concurrent writers can no longer both
+  win; the version check makes the write atomic at the DB level, so the
+  loser is rejected rather than silently overwriting.
+* **Regression:** `test_lost_update_is_prevented_by_version_check`,
+  `test_lost_update_prevents_silent_result_loss` (deterministic, barrier
+  synchronized), plus the updated
+  `test_concurrent_completion_does_not_corrupt_state` and
+  `test_concurrent_failure_update_is_consistent`.
+
 ### Other documented races (protected)
 
 `test_concurrent_duplicate_submission_is_idempotent`,
@@ -217,7 +267,9 @@ identified, reproduced, fixed, and protected.
 `test_concurrent_cancel_during_dequeue`,
 `test_lease_acquisition_is_mutual_exclusive`,
 `test_execution_id_is_unique_per_claim`,
-`test_tenant_scope_does_not_interfere_across_concurrent_tasks`.
+`test_tenant_scope_does_not_interfere_across_concurrent_tasks`,
+`test_lost_update_is_prevented_by_version_check`,
+`test_lost_update_prevents_silent_result_loss`.
 All use deterministic (not arbitrary-sleep) synchronization via async
 barriers / the real atomic queue/DB operations.
 
@@ -225,7 +277,9 @@ barriers / the real atomic queue/DB operations.
 
 ## Security Audit
 
-53 security tests pass across three files.
+62 security tests pass across four files (`test_security_audit.py`,
+`test_authorization.py`, `test_input_validation.py`,
+`test_preexisting_bug_regression.py`).
 
 ### Tenant Isolation (API + queue layer)
 
@@ -308,6 +362,25 @@ token-bucket store in this architecture).
 request flow, both success and failed auth), and
 `test_monitoring_trace_endpoint_requires_no_auth_leak`
 (inspects `/monitoring/traces` output for the API key and DB password).
+
+### Preexisting-Bug Regression Suite
+
+`tests/security/test_preexisting_bug_regression.py` — 9 tests that prove
+each fix from this audit actually closes the defect it targets (no
+placeholder assertions that would pass before the fix):
+
+* **Cross-tenant hijack:** a task created by one tenant cannot be
+  re-submitted / claimed by another (409 at both scheduler and API
+  layers).
+* **IdempotencyManager rewiring:** the same `task_id` enqueued
+  concurrently yields exactly one queue entry, and the manager is now
+  Redis-backed and live — not dead code.
+* **Resubmit semantics:** re-submitting a running task is a no-op; a
+  completed task's result is preserved.
+* **Duplicate at creation:** concurrent duplicate submissions produce
+  exactly one task; post-completion duplicates are no-ops.
+* **Middleware fail-closed:** without a tenant manager the middleware
+  returns 503 rather than open (fail-closed, not fail-open).
 
 ### Log / Monitoring Leakage
 
@@ -398,9 +471,9 @@ reason.
 pytest tests/unit            --cov=src/agent_platform --cov-report=xml
 pytest tests/integration     --cov-append ...
 pytest tests/concurrency     --cov-append ...   # 51 tests
-pytest tests/race            --cov-append ...   # 16 tests
-pytest tests/security        --cov-append ...   # 53 tests
-pytest tests/observability   --cov-append ...   # 4 tests  (ADDED in this audit)
+pytest tests/race            --cov-append ...   # 18 tests (incl. 2 lost-update)
+pytest tests/security        --cov-append ...   # 62 tests (incl. regression suite)
+pytest tests/observability   --cov-append ...   # 4 tests
 python scripts/report_coverage.py \
   --minimum 85 --coverage-xml coverage.xml \
   --unit-junit reports/unit.xml --integration-junit reports/integration.xml \
@@ -438,11 +511,15 @@ this correctness audit.
 | 10 simultaneous duplicate submissions PASS | yes | yes | **PASS** | `test_10_duplicate_submissions_*` |
 | 10 workers competing for same task PASS | yes | yes | **PASS** | `test_10_workers_compete_for_one_task*` |
 | Exactly/At-Least/At-Most Once proven & documented | yes | yes | **PASS** | Delivery Semantics matrix |
-| >= 10 race-condition tests PASS | 10 | 16 | **PASS** | `tests/race` |
-| At least one REAL race identified | yes | yes | **PASS** | reclaim lost-update + trace-correlation bug |
-| REAL race fixed | yes | yes | **PASS** | atomic `UPDATE ... WHERE`; carry request_id/message_id |
-| Regression test proves the fix | yes | yes | **PASS** | `test_concurrent_reclaim_does_not_double_increment_retry`, observability test |
-| >= 20 security tests PASS | 20 | 53 | **PASS** | `tests/security` |
+| >= 10 race-condition tests PASS | 10 | 18 | **PASS** | `tests/race` (includes 2 deterministic lost-update tests) |
+| At least one REAL race identified | yes | yes | **PASS** | reclaim lost-update + trace-correlation bug + `Task.version` lost update |
+| REAL race fixed | yes | yes | **PASS** | atomic `UPDATE ... WHERE`; carry request_id/message_id; version-checked update |
+| Regression test proves the fix | yes | yes | **PASS** | `test_concurrent_reclaim_does_not_double_increment_retry`, observability test, `test_lost_update_*` |
+| >= 20 security tests PASS | 20 | 62 | **PASS** | `tests/security` (4 files, includes regression suite) |
+| `Task.version` lost-update race fixed | yes | yes | **PASS** | version-checked `UPDATE ... WHERE version = :v`; `TaskWriteConflictError` |
+| Deterministic lost-update regression tests | yes | yes | **PASS** | `test_lost_update_is_prevented_by_version_check`, `test_lost_update_prevents_silent_result_loss` |
+| IdempotencyManager wired into queue (no longer dead code) | yes | yes | **PASS** | `RedisTaskQueue.enqueue`/`update_task` + Redis-backed `IdempotencyManager` |
+| Load-test/coverage tooling brittleness fixed | yes | yes | **PASS** | `chaos_load_test.py` dynamic discovery + zero-duration raise; `report_coverage.py` all-zero raise |
 | Tenant isolation at API level | yes | yes | **PASS** | authorization tests |
 | API key handling tested | yes | yes | **PASS** | `test_security_audit.py` |
 | Authentication bypass tested | yes | yes | **PASS** | `test_authentication_required_cannot_be_bypassed` |
@@ -461,10 +538,10 @@ this correctness audit.
 | CI executes security tests | yes | yes | **PASS** | ci.yml |
 | CI executes observability acceptance test | yes | yes | **PASS** | ci.yml (added) |
 | CI fails correctly when audit tests fail | yes | yes | **PASS** | no `|| true`; real exit codes |
-| Coverage report is accurate | yes | yes | **PASS** | `report_coverage.py` reads real XMLs; observability added |
+| Coverage report is accurate | yes | yes | **PASS** | `report_coverage.py` reads real XMLs; all-zero load metrics now raise rather than mislead |
 | No required test is skipped | yes | yes | **PASS** | no `skip`/`xfail` in audit suites |
 | No `xfail` used to hide failure | yes | yes | **PASS** | none present |
 | No `|| true` / failure suppression | yes | yes | **PASS** | ci.yml |
 | `ENGINEERING_AUDIT.md` complete | yes | yes | **PASS** | this document |
 | No debug files/secrets remain | yes | yes | **PASS** | ad-hoc root debug scripts removed |
-| Full relevant test suite passes | yes | yes | **PASS** | 124 audit tests passing |
+| Full relevant test suite passes | yes | yes | **PASS** | 135 audit tests passing (313 total) |
