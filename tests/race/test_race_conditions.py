@@ -373,24 +373,79 @@ async def test_concurrent_cancel_during_dequeue(redis_queue, clean_db):
     """
     Cancelling a task while another worker is dequeuing it must not
     leave the task in an inconsistent state.
+
+    With the version-checked dequeue fix (audit bug #2) one of the two
+    writes wins and the other is rejected with ``TaskWriteConflictError``
+    rather than silently overwriting the winner — the row's ``version``
+    reflects every successful write, the loser never merges into the
+    winning state, and ``cancel()`` either succeeds or raises but never
+    corrupts.
     """
+    from src.agent_platform.scheduler.exceptions import TaskWriteConflictError
+
     scheduler = TaskScheduler(redis_queue)
     task_id = "race-cancel-001"
 
     await scheduler.submit_task("agent-a", "echo", {}, task_id=task_id)
 
     async def cancel_task():
+        # Brief delay so dequeue starts first most of the time, but the
+        # test must be correct under any interleaving.
         await asyncio.sleep(0.01)
-        await redis_queue.cancel(task_id)
+        try:
+            return await redis_queue.cancel(task_id)
+        except TaskWriteConflictError as exc:
+            return exc
 
     async def dequeue_task():
         return await redis_queue.dequeue(worker_id="w-a", lease_seconds=30)
 
-    await asyncio.gather(cancel_task(), dequeue_task())
+    cancel_result, dequeue_result = await asyncio.gather(
+        cancel_task(), dequeue_task()
+    )
 
-    # After cancel+dequeue, the task must be in a terminal state
+    # Exactly one of the two operations wins; the other either returns
+    # None (dequeue on a cancelled task) or raises TaskWriteConflictError
+    # (cancel racing against a successful dequeue).
+    cancel_won = cancel_result is True
+    dequeue_won = dequeue_result is not None
+
+    # The two outcomes are mutually exclusive: cancel transitions the
+    # row to CANCELLED, dequeue transitions it to RUNNING.  Both could
+    # "lose" only if dequeue skipped the claim because the row was
+    # already CANCELLED by the time it observed it.
+    assert cancel_won or dequeue_won, (
+        "one of cancel/dequeue must win the race; got cancel="
+        f"{cancel_result!r}, dequeue={dequeue_result!r}"
+    )
+    if cancel_won and dequeue_won:
+        # If both appear to win, that is the lost-update bug we are
+        # closing — assert that no silent merge happened.  In practice
+        # the version-checked UPDATE on dequeue must reject the cancel
+        # winner's stale ORM object via TaskWriteConflictError, but we
+        # defensively guard against any regression here.
+        pytest.fail(
+            "Both cancel() and dequeue() reported success for the same "
+            "task — this is the lost-update bug the audit closes."
+        )
+
     final = await redis_queue.get_task(task_id)
-    assert final.status in (TaskStatus.CANCELLED, TaskStatus.RUNNING)
+    # The task must end in exactly the terminal/active state the winner
+    # chose, with the row's ``version`` reflecting every successful
+    # write — never two writes' fields merged together.
+    if cancel_won:
+        assert final.status == TaskStatus.CANCELLED
+        # The cancel write increments the version once.
+        assert final.version == 1
+    else:
+        # dequeue won the race.  cancel returned None (task was no
+        # longer PENDING) or raised TaskWriteConflictError.  Either way
+        # the row is RUNNING with a lease.
+        assert final.status == TaskStatus.RUNNING
+        assert final.lease_owner == "w-a"
+        # The dequeue write incremented the version; cancel did not
+        # silently merge.
+        assert final.version == 1
 
 
 @pytest.mark.asyncio
@@ -639,3 +694,245 @@ async def test_lost_update_prevents_silent_result_loss(redis_queue, clean_db):
 async def _write_after_barrier(redis_queue, task, barrier):
     await barrier.wait()
     await redis_queue.update_task(task)
+
+
+# ---------------------------------------------------------------------------
+# 17. dequeue() lease-claim participates in optimistic locking
+# ---------------------------------------------------------------------------
+# Regression test for the audit's second bug:
+#
+#   ``dequeue()`` used to mutate the TaskORM object directly and commit,
+#   bypassing the version-checked update path used everywhere else
+#   (``_save_task_to_db``).  A concurrent ``cancel()`` (or another
+#   ``update_task()``) on the same ``task_id`` could therefore have its
+#   changes silently overwritten by ``dequeue()``'s unguarded commit (or
+#   vice versa) with no ``TaskWriteConflictError`` raised by either side.
+#
+# The fix makes the RUNNING/lease-claim write go through the same
+# ``UPDATE ... WHERE version = ?`` path, incrementing ``version`` on
+# success and skipping the claim on a zero-row match.
+#
+# This test forces the dangerous interleaving with an ``asyncio.Barrier``
+# between the two concurrent writers on the same task_id: it is
+# deterministic and exercises exactly 2 concurrent worker paths, against
+# real PostgreSQL + Redis — no fakes, no mocks.
+
+
+@pytest.mark.asyncio
+async def test_dequeue_vs_cancel_version_conflict_no_lost_update(redis_queue, clean_db):
+    """
+    Worker 1 (dequeue) and worker 2 (cancel) race on the same PENDING
+    task.  Before the fix, both writes silently committed and the
+    final state was whichever writer's ``session.commit()`` happened
+    to land last — the loser's fields were silently merged into the
+    winner.  After the fix, exactly one operation succeeds; the other
+    is rejected (cancel raises ``TaskWriteConflictError`` if dequeue
+    won, or dequeue returns ``None`` / skips the claim if cancel won
+    first).  The row's ``version`` reflects every successful write
+    and no field from the losing writer leaks into the persisted row.
+    """
+    from src.agent_platform.scheduler.exceptions import TaskWriteConflictError
+
+    scheduler = TaskScheduler(redis_queue)
+    task_id = "race-dequeue-cancel-001"
+
+    # Initial task is PENDING with version 0.
+    await scheduler.submit_task("agent-a", "echo", {"secret": "original"}, task_id=task_id)
+    v0 = await redis_queue.get_task(task_id)
+    assert v0 is not None
+    assert v0.status == TaskStatus.PENDING
+    assert v0.version == 0
+
+    barrier = asyncio.Barrier(2)
+
+    async def worker_1_dequeue():
+        await barrier.wait()
+        return await redis_queue.dequeue(worker_id="w-1", lease_seconds=30)
+
+    async def worker_2_cancel():
+        await barrier.wait()
+        try:
+            cancelled = await redis_queue.cancel(task_id)
+            return ("ok", cancelled)
+        except TaskWriteConflictError as exc:
+            return ("conflict", exc)
+
+    dequeue_result, cancel_result = await asyncio.gather(
+        worker_1_dequeue(),
+        worker_2_cancel(),
+    )
+
+    # Exactly one operation must win.  If dequeue wins, the task is
+    # RUNNING and cancel either returns False (task was no longer
+    # PENDING) or raises TaskWriteConflictError.  If cancel wins, the
+    # task is CANCELLED and dequeue either returns None (skipped the
+    # claim because status was no longer PENDING) or returns a task
+    # that has not actually persisted (i.e. it was skipped due to the
+    # status guard).  Either way, both sides must NOT report success.
+    final = await redis_queue.get_task(task_id)
+
+    # 1. The persisted state is internally consistent — it is either
+    #    RUNNING (dequeue won) or CANCELLED (cancel won).  No merged
+    #    fields, no impossible intermediate state.
+    assert final.status in (TaskStatus.RUNNING, TaskStatus.CANCELLED), (
+        f"unexpected terminal state: {final.status}"
+    )
+
+    # 2. The row's ``version`` reflects every successful write.  Two
+    #    successful writes would be version 2; one write + one rejected
+    #    write is version 1.  Crucially, a "both wrote silently"
+    #    outcome would have produced version 1 with a corrupt mix of
+    #    fields; we forbid that by asserting the fields below match the
+    #    winner and only the winner.
+    if final.status == TaskStatus.RUNNING:
+        # dequeue won, cancel was rejected with TaskWriteConflictError
+        # (because cancel read version=0 but the row had been bumped to
+        # 1 by dequeue's UPDATE ... WHERE version=0).
+        assert cancel_result[0] == "conflict", (
+            f"cancel must raise TaskWriteConflictError when dequeue wins; got {cancel_result}"
+        )
+        assert dequeue_result is not None
+        # dequeue wrote exactly once; cancel wrote zero times.
+        assert final.version == 1, (
+            f"dequeue must increment version exactly once on success; got {final.version}"
+        )
+        assert final.lease_owner == "w-1"
+        assert final.lease_expires_at is not None
+        # Original payload must survive intact.
+        assert final.payload == {"secret": "original"}
+        # Cancel must not have silently merged its status=COMPLETED
+        # fields into the row.
+        assert final.status != TaskStatus.CANCELLED
+    else:
+        # cancel won, dequeue either skipped the claim (status was no
+        # longer PENDING) or returned a task that has not actually
+        # persisted (the version-checked UPDATE on dequeue would
+        # similarly fail and be skipped).  The task is CANCELLED.
+        assert final.status == TaskStatus.CANCELLED
+        # cancel wrote exactly once; dequeue wrote zero times.
+        assert final.version == 1, (
+            f"cancel must increment version exactly once on success; got {final.version}"
+        )
+        assert dequeue_result is None, (
+            f"dequeue must not return a claim on a CANCELLED row; got {dequeue_result!r}"
+        )
+        # dequeue must not have silently merged its lease fields.
+        assert final.lease_owner is None
+        assert final.lease_expires_at is None
+
+
+@pytest.mark.asyncio
+async def test_dequeue_vs_update_task_version_conflict_no_lost_update(redis_queue, clean_db):
+    """
+    Worker 1 (dequeue) and worker 2 (update_task completing a stale
+    retry) race on the same PENDING task.  Before the fix, both writes
+    silently committed and the loser could merge ``result``/``error``
+    fields into the winner's persisted state.  After the fix, exactly
+    one write succeeds (the other raises ``TaskWriteConflictError`` or
+    is skipped), the ``version`` reflects every successful write, and
+    the winning writer's fields are preserved intact.
+    """
+    from src.agent_platform.scheduler.exceptions import TaskWriteConflictError
+
+    scheduler = TaskScheduler(redis_queue)
+    task_id = "race-dequeue-update-001"
+
+    await scheduler.submit_task("agent-a", "echo", {"secret": "original"}, task_id=task_id)
+    v0 = await redis_queue.get_task(task_id)
+    assert v0 is not None
+    assert v0.status == TaskStatus.PENDING
+    assert v0.version == 0
+
+    # Worker 2 has a stale snapshot from a previous read — it is going
+    # to try to COMPLETE the task.  Its version=0 is stale relative to
+    # whatever the other worker does.
+    stale = await redis_queue.get_task(task_id)
+    stale.status = TaskStatus.COMPLETED
+    stale.result = {"stale_result": "from-worker-2"}
+
+    barrier = asyncio.Barrier(2)
+
+    async def worker_1_dequeue():
+        await barrier.wait()
+        return await redis_queue.dequeue(worker_id="w-1", lease_seconds=30)
+
+    async def worker_2_update():
+        await barrier.wait()
+        try:
+            await redis_queue.update_task(stale)
+            return ("ok",)
+        except TaskWriteConflictError as exc:
+            return ("conflict", exc)
+
+    dequeue_result, update_result = await asyncio.gather(
+        worker_1_dequeue(),
+        worker_2_update(),
+    )
+
+    final = await redis_queue.get_task(task_id)
+    assert final.status in (TaskStatus.RUNNING, TaskStatus.COMPLETED), (
+        f"unexpected terminal state: {final.status}"
+    )
+
+    if final.status == TaskStatus.RUNNING:
+        # dequeue won; update was rejected with TaskWriteConflictError
+        # because its stale version=0 was clobbered by dequeue's
+        # version=0 -> 1 bump.
+        assert update_result[0] == "conflict", (
+            f"update_task must raise TaskWriteConflictError when dequeue wins; got {update_result}"
+        )
+        assert dequeue_result is not None
+        assert final.version == 1
+        assert final.lease_owner == "w-1"
+        # The stale update's result must NEVER be persisted.
+        assert final.result is None or final.result != {"stale_result": "from-worker-2"}, (
+            "stale update_task result was silently merged into the dequeue winner"
+        )
+        # Original payload preserved.
+        assert final.payload == {"secret": "original"}
+    else:
+        # update won (dequeue's version-checked UPDATE found zero rows
+        # and skipped the claim, returning None).  The task is
+        # COMPLETED with the legitimate result.
+        assert final.status == TaskStatus.COMPLETED
+        assert dequeue_result is None, (
+            f"dequeue must skip the claim when update wins; got {dequeue_result!r}"
+        )
+        assert final.version == 1
+        assert final.result == {"stale_result": "from-worker-2"}
+        # dequeue must not have merged its lease fields into the row.
+        assert final.lease_owner is None
+        assert final.lease_expires_at is None
+
+
+@pytest.mark.asyncio
+async def test_dequeue_increments_version_on_every_successful_claim(redis_queue, clean_db):
+    """
+    Every successful dequeue() lease-claim must increment ``version``,
+    matching the invariant enforced for every other write path
+    (``_save_task_to_db``).  This guards against a silent regression
+    where a future change reintroduces the unguarded commit and the
+    ``version`` column stops being bumped on the PENDING -> RUNNING
+    transition.
+    """
+    scheduler = TaskScheduler(redis_queue)
+    task_ids = [f"race-dequeue-version-{i:02d}" for i in range(3)]
+
+    for tid in task_ids:
+        await scheduler.submit_task("agent-a", "echo", {"i": tid}, task_id=tid)
+        before = await redis_queue.get_task(tid)
+        assert before.version == 0, f"initial version for {tid} must be 0, got {before.version}"
+
+        claimed = await redis_queue.dequeue(worker_id="w-claim", lease_seconds=30)
+        assert claimed is not None
+        assert claimed.version == 1, (
+            f"dequeue must bump version 0 -> 1 on successful claim of {tid}; got {claimed.version}"
+        )
+
+        after = await redis_queue.get_task(tid)
+        assert after.version == 1, (
+            f"persisted version for {tid} must be 1 after dequeue; got {after.version}"
+        )
+        assert after.status == TaskStatus.RUNNING
+        assert after.lease_owner == "w-claim"
+        assert after.lease_expires_at is not None

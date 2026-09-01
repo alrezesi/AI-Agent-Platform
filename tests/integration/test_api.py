@@ -44,27 +44,52 @@ def test_root(client):
 
 
 def test_monitoring_status(client):
-    """Test the monitoring status endpoint."""
+    """Test the monitoring status endpoint (now requires authentication).
+
+    The audit removed the ``/monitoring/*`` auth exemption; unauthenticated
+    callers must now be rejected with 401.  See
+    ``tests/security/test_authorization.py`` for the security tests that
+    assert the tenant-isolation contract.
+    """
+    # Unauthenticated callers must be rejected.
     response = client.get("/monitoring/status")
+    assert response.status_code == 401
+
+    # Authenticated callers get the same body shape as before.
+    headers = _tenant_headers()
+    response = client.get("/monitoring/status", headers=headers)
     assert response.status_code == 200
     assert "status" in response.json()
 
 
 def test_monitoring_agents(client):
-    """Test the monitoring agents endpoint."""
+    """Test the monitoring agents endpoint (now requires authentication)."""
     response = client.get("/monitoring/agents")
+    assert response.status_code == 401
+
+    headers = _tenant_headers()
+    response = client.get("/monitoring/agents", headers=headers)
     assert response.status_code == 200
 
 
 def test_monitoring_tasks(client):
-    """Test the monitoring tasks endpoint."""
+    """Test the monitoring tasks endpoint (now requires authentication
+    and is tenant-scoped)."""
     response = client.get("/monitoring/tasks")
+    assert response.status_code == 401
+
+    headers = _tenant_headers()
+    response = client.get("/monitoring/tasks", headers=headers)
     assert response.status_code == 200
 
 
 def test_monitoring_metrics(client):
-    """Test the monitoring metrics endpoint."""
+    """Test the monitoring metrics endpoint (now requires authentication)."""
     response = client.get("/monitoring/metrics")
+    assert response.status_code == 401
+
+    headers = _tenant_headers()
+    response = client.get("/monitoring/metrics", headers=headers)
     assert response.status_code == 200
 
 

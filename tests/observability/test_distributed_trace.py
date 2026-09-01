@@ -123,7 +123,9 @@ async def test_distributed_trace_request_to_final_result_with_retry(redis_queue,
     await redis_queue.update_task(claim2)
 
     # 8. Build the trace from the real store, starting at the Request ID.
-    nodes = await build_task_trace(redis_queue, request_id)
+    #    ``build_task_trace`` requires a tenant scope; pass the
+    #    authenticated tenant id so the trace is filtered to it.
+    nodes = await build_task_trace(redis_queue, request_id, tenant_id=tenant_id)
     assert len(nodes) == 1
     node = nodes[0]
 
@@ -155,9 +157,14 @@ async def test_distributed_trace_request_to_final_result_with_retry(redis_queue,
     assert retry["next_retry_decision"] == "requeue"
 
     # Cross-check: the trace is also exposed via the existing monitoring
-    # interface (/monitoring/traces?trace_id=...).
+    # interface (/monitoring/traces?trace_id=...).  The endpoint now
+    # requires authentication (the audit closed the unauthenticated
+    # cross-tenant IDOR), so pass the caller's API key.
     async with _make_client(app) as client:
-        trace_resp = await client.get(f"/monitoring/traces?trace_id={request_id}")
+        trace_resp = await client.get(
+            f"/monitoring/traces?trace_id={request_id}",
+            headers={"X-API-Key": api_key, "X-Tenant-ID": tenant_id},
+        )
     assert trace_resp.status_code == 200
     trace_body = trace_resp.json()
     assert trace_body.get("source") == "task_store"
@@ -174,11 +181,11 @@ async def test_trace_navigation_from_task_id_and_message_id(redis_queue, clean_d
     submitted = await redis_queue.get_task("trace-nav-001")
     assert submitted.message_id is not None
 
-    by_task = await build_task_trace(redis_queue, "trace-nav-001")
+    by_task = await build_task_trace(redis_queue, "trace-nav-001", tenant_id="tenant-nav")
     assert len(by_task) == 1
     assert by_task[0]["task_id"] == "trace-nav-001"
 
-    by_message = await build_task_trace(redis_queue, submitted.message_id)
+    by_message = await build_task_trace(redis_queue, submitted.message_id, tenant_id="tenant-nav")
     assert len(by_message) == 1
     assert by_message[0]["task_id"] == "trace-nav-001"
 
@@ -203,7 +210,7 @@ async def test_trace_records_explicit_failure_reason(redis_queue, clean_db):
     )
     await redis_queue.update_task(claim)
 
-    node = (await build_task_trace(redis_queue, "trace-fail-001"))[0]
+    node = (await build_task_trace(redis_queue, "trace-fail-001", tenant_id="tenant-fail"))[0]
     assert node["error_category"] == "transient"
     assert len(node["retry_history"]) == 1
     assert node["retry_history"][0]["error_category"] == "transient"
@@ -214,7 +221,15 @@ async def test_trace_records_explicit_failure_reason(redis_queue, clean_db):
 
 @pytest.mark.asyncio
 async def test_monitoring_trace_endpoint_requires_no_auth_leak(redis_queue, clean_db):
-    """The monitoring trace endpoint must not leak secrets (API keys)."""
+    """The monitoring trace endpoint must not leak secrets (API keys)
+    even though it now requires authentication.
+
+    NOTE: the audit tightened ``/monitoring/*`` to require an API key
+    (closes an unauthenticated cross-tenant IDOR).  The test therefore
+    authenticates before reading the trace and asserts that the response
+    body — even when populated with the caller's task — never contains
+    secret material.
+    """
     tm = TenantManager(_TenantStorage())
     tenant = await tm.create_tenant("Trace Leak Tenant")
     api_key = await tm.generate_api_key(tenant.tenant_id)
@@ -231,7 +246,17 @@ async def test_monitoring_trace_endpoint_requires_no_auth_leak(redis_queue, clea
         assert resp.status_code == 200
         rid = resp.headers["X-Request-ID"]
 
-        trace = await client.get(f"/monitoring/traces?trace_id={rid}")
+        # Unauthenticated callers must be rejected (401) — no trace data
+        # leaked to anyone without a key.
+        no_auth = await client.get(f"/monitoring/traces?trace_id={rid}")
+        assert no_auth.status_code == 401, no_auth.status_code
+
+        # Authenticated callers get the trace but the body must still
+        # never contain secret material.
+        trace = await client.get(
+            f"/monitoring/traces?trace_id={rid}",
+            headers={"X-API-Key": api_key, "X-Tenant-ID": tenant.tenant_id},
+        )
     assert trace.status_code == 200
     dumped = trace.text
     assert api_key not in dumped
