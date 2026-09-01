@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from src.agent_platform.core.task import Task, TaskPriority, TaskStatus
 from src.agent_platform.scheduler.base import BaseTaskQueue
+from src.agent_platform.scheduler.exceptions import CrossTenantTaskConflictError
 from src.agent_platform.scheduler.models import TaskFilterOptions, TaskStats
 
 
@@ -34,9 +35,22 @@ class TaskScheduler:
         Returns the generated task_id.
         """
         if task_id:
-            existing = await self.queue.get_task(task_id, tenant_id)
-            if existing:
-                return existing.task_id
+            # Look up the task WITHOUT applying the tenant filter first, so
+            # we can tell "same tenant, idempotent re-submit" apart from
+            # "different tenant, attempted hijack".  A client-supplied task_id
+            # that already exists under another tenant must be rejected rather
+            # than silently overwritten (the enqueue() upsert would otherwise
+            # clobber the original tenant_id and all other fields).
+            existing_any_tenant = await self.queue.get_task(task_id, None)
+            if existing_any_tenant:
+                if existing_any_tenant.tenant_id != tenant_id:
+                    raise CrossTenantTaskConflictError(
+                        task_id=task_id,
+                        expected_tenant=tenant_id,
+                        actual_tenant=existing_any_tenant.tenant_id,
+                    )
+                # Same tenant (or both unscoped): idempotent re-submission.
+                return existing_any_tenant.task_id
 
         task = Task(
             task_id=task_id or f"task-{uuid4().hex[:8]}",
