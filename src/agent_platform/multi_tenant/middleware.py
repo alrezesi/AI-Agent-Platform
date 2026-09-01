@@ -59,16 +59,20 @@ class TenantMiddleware(BaseHTTPMiddleware):
         if tenant_manager is not None:
             tenant = await tenant_manager.authenticate_api_key(api_key)
         else:
-            # Fallback when no tenant_manager is available (e.g., bare
-            # test fixture without dependency override).  We still
-            # generate a hash so the raw key is never stored in memory.
-            from src.agent_platform.security import hash_api_key
-
-            tenant = Tenant(
-                tenant_id=tenant_id_hint or "test-tenant",
-                name=f"Tenant {tenant_id_hint or 'test'}",
-                status=TenantStatus.ACTIVE,
-                api_keys=[{"key_hash": hash_api_key(api_key), "is_active": True}],
+            # No tenant_manager available (DI wiring failure, startup race,
+            # or misconfiguration).  FAIL CLOSED: never fabricate a tenant
+            # from unverified client input, as that would be a full auth
+            # bypass — any caller-supplied API key + X-Tenant-ID would be
+            # accepted as a valid, active tenant.
+            logger.warning(
+                "TenantMiddleware: no tenant_manager available; "
+                "rejecting request to %s %s (failing closed)",
+                method,
+                path,
+            )
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Authentication service unavailable"},
             )
 
         if not tenant or tenant.status != TenantStatus.ACTIVE:
