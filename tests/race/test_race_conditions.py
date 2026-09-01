@@ -48,8 +48,13 @@ async def test_concurrent_duplicate_submission_is_idempotent(redis_queue, clean_
 async def test_concurrent_completion_does_not_corrupt_state(redis_queue, clean_db):
     """
     If two workers call ``update_task`` with COMPLETED concurrently,
-    the task must end in COMPLETED with no partial writes.
+    optimistic locking must prevent the lost-update race: exactly one write
+    wins and the other raises ``TaskWriteConflictError`` instead of silently
+    overwriting the winner.  The task must still end in COMPLETED with a
+    consistent (non-corrupt) state.
     """
+    from src.agent_platform.scheduler.exceptions import TaskWriteConflictError
+
     scheduler = TaskScheduler(redis_queue)
     task_id = "race-complete-001"
 
@@ -61,23 +66,34 @@ async def test_concurrent_completion_does_not_corrupt_state(redis_queue, clean_d
     assert task_a is not None
     assert task_b is None
 
-    task_a.status = TaskStatus.COMPLETED
-    task_a.result = {"worker": "w-a"}
+    # Both workers read the same task version and try to complete it
+    # concurrently.  With optimistic locking only one may win.
+    task_a_copy = await redis_queue.get_task(task_id)
+    task_a_copy.status = TaskStatus.COMPLETED
+    task_a_copy.result = {"worker": "copy"}
 
-    # Simulate a concurrent update from another path (same data)
-    async def complete_again():
-        await asyncio.sleep(0.01)
-        task_a.status = TaskStatus.COMPLETED
-        task_a.result = {"worker": "w-b"}
-        await redis_queue.update_task(task_a)
+    task_a.status = TaskStatus.COMPLETED
+    task_a.result = {"worker": "original"}
+
+    async def complete_copy():
+        await redis_queue.update_task(task_a_copy)
 
     async def complete_original():
         await redis_queue.update_task(task_a)
 
-    await asyncio.gather(complete_original(), complete_again())
+    results = await asyncio.gather(complete_original(), complete_copy(), return_exceptions=True)
+
+    # Exactly one write wins; the other must be rejected with a version
+    # conflict (never a silent overwrite).
+    conflicts = [r for r in results if isinstance(r, TaskWriteConflictError)]
+    successes = [r for r in results if not isinstance(r, Exception)]
+    assert len(successes) == 1, f"Expected exactly 1 success, got {len(successes)}"
+    assert len(conflicts) == 1, f"Expected exactly 1 conflict, got {len(conflicts)}"
 
     final = await redis_queue.get_task(task_id)
     assert final.status == TaskStatus.COMPLETED
+    # The winner's payload is preserved intact (no merged/corrupt state).
+    assert final.result in ({"worker": "original"}, {"worker": "copy"})
 
 
 # ---------------------------------------------------------------------------
@@ -237,33 +253,43 @@ async def test_concurrent_enqueue_same_task_deduplicates(redis_queue, clean_db):
 @pytest.mark.asyncio
 async def test_concurrent_failure_update_is_consistent(redis_queue, clean_db):
     """
-    Two concurrent failure updates on the same task must produce a
-    consistent FAILED state without corruption.
+    Two concurrent failure updates on the same task must not silently
+    overwrite each other.  Optimistic locking ensures exactly one write wins
+    and the other raises ``TaskWriteConflictError``.  The final state is a
+    consistent FAILED with an error set by the winner.
     """
+    from src.agent_platform.scheduler.exceptions import TaskWriteConflictError
+
     scheduler = TaskScheduler(redis_queue)
     task_id = "race-fail-001"
 
     await scheduler.submit_task("agent-a", "echo", {}, task_id=task_id)
     claimed = await redis_queue.dequeue(worker_id="w-a", lease_seconds=30)
 
+    # Build two independent snapshots at the same version, each reporting a
+    # different failure.
     claimed.status = TaskStatus.FAILED
     claimed.error = "crash"
 
-    async def fail_twice():
-        # Simulate a concurrent failure write
-        task = await redis_queue.get_task(task_id)
-        task.status = TaskStatus.FAILED
-        task.error = "crash2"
-        await redis_queue.update_task(task)
+    claimed2 = await redis_queue.get_task(task_id)
+    claimed2.status = TaskStatus.FAILED
+    claimed2.error = "crash2"
 
-    await asyncio.gather(
+    results = await asyncio.gather(
         redis_queue.update_task(claimed),
-        fail_twice(),
+        redis_queue.update_task(claimed2),
+        return_exceptions=True,
     )
+
+    conflicts = [r for r in results if isinstance(r, TaskWriteConflictError)]
+    successes = [r for r in results if not isinstance(r, Exception)]
+    assert len(successes) == 1, f"Expected exactly 1 success, got {len(successes)}"
+    assert len(conflicts) == 1, f"Expected exactly 1 conflict, got {len(conflicts)}"
 
     final = await redis_queue.get_task(task_id)
     assert final.status == TaskStatus.FAILED
-    assert final.error is not None
+    # The winner's error survives intact — never a merged/corrupt value.
+    assert final.error in ("crash", "crash2")
 
 
 # ---------------------------------------------------------------------------
@@ -502,3 +528,114 @@ async def test_tenant_scope_does_not_interfere_across_concurrent_tasks(redis_que
     assert len(claimed) == 10
     for task in claimed:
         assert task.tenant_id in ("tenant-A", "tenant-B")
+
+
+# ---------------------------------------------------------------------------
+# 16. Deterministic lost-update race (optimistic locking)
+# ---------------------------------------------------------------------------
+# This is the regression test for the lost-update bug: the ``version`` field
+# on ``Task`` exists for optimistic locking but was never checked, so two
+# concurrent terminal writes to the same task row silently clobbered each
+# other (last-write-wins).
+#
+# The test FORCES the dangerous interleaving with an asyncio barrier: both
+# workers read the row at the same version, then both attempt to write.  This
+# is deterministic — it does not rely on sleep-based timing.
+#
+# Before the fix: both writes "succeed", the loser silently overwrites the
+# winner, and ``version`` is never bumped.
+# After the fix: exactly one write wins, the loser raises
+# ``TaskWriteConflictError``, and ``version`` is bumped exactly once.
+
+
+@pytest.mark.asyncio
+async def test_lost_update_is_prevented_by_version_check(redis_queue, clean_db):
+    """
+    Two workers that read the same task version and write concurrently: only
+    one may win.  Forced with a barrier so the interleaving is deterministic.
+    """
+    from src.agent_platform.scheduler.exceptions import TaskWriteConflictError
+
+    scheduler = TaskScheduler(redis_queue)
+    task_id = "race-lost-update-001"
+
+    await scheduler.submit_task("agent-a", "echo", {}, task_id=task_id)
+    # Initial version is 0.
+    v0 = await redis_queue.get_task(task_id)
+    assert v0.version == 0
+
+    # Two independent snapshots, both at version 0.
+    snap_a = await redis_queue.get_task(task_id)
+    snap_b = await redis_queue.get_task(task_id)
+    snap_a.status = TaskStatus.COMPLETED
+    snap_a.result = {"winner": "A"}
+    snap_b.status = TaskStatus.COMPLETED
+    snap_b.result = {"winner": "B"}
+
+    barrier = asyncio.Barrier(2)
+
+    async def writer(task, label):
+        await barrier.wait()  # force both to start the write simultaneously
+        await redis_queue.update_task(task)
+        return label
+
+    results = await asyncio.gather(
+        writer(snap_a, "A"),
+        writer(snap_b, "B"),
+        return_exceptions=True,
+    )
+
+    conflicts = [r for r in results if isinstance(r, TaskWriteConflictError)]
+    successes = [r for r in results if not isinstance(r, Exception)]
+    assert len(successes) == 1, f"expected 1 winner, got {len(successes)}: {results}"
+    assert len(conflicts) == 1, f"expected 1 conflict, got {len(conflicts)}: {results}"
+
+    # version bumped exactly once (0 -> 1), never the "both won" outcome.
+    final = await redis_queue.get_task(task_id)
+    assert final.status == TaskStatus.COMPLETED
+    assert final.version == 1
+    assert final.result in ({"winner": "A"}, {"winner": "B"})
+
+
+@pytest.mark.asyncio
+async def test_lost_update_prevents_silent_result_loss(redis_queue, clean_db):
+    """
+    The original bug: without a version check, the loser's write silently
+    overwrites the winner's result.  Prove the winner's result survives and
+    the loser's result is NOT what ends up stored (i.e. no silent clobber).
+    """
+    from src.agent_platform.scheduler.exceptions import TaskWriteConflictError
+
+    scheduler = TaskScheduler(redis_queue)
+    task_id = "race-silent-loss-001"
+
+    await scheduler.submit_task("agent-a", "echo", {}, task_id=task_id)
+
+    snap_a = await redis_queue.get_task(task_id)
+    snap_b = await redis_queue.get_task(task_id)
+    snap_a.status = TaskStatus.COMPLETED
+    snap_a.result = {"data": "important-result-from-A"}
+    snap_b.status = TaskStatus.COMPLETED
+    snap_b.result = {"data": "stale-result-from-B"}
+
+    barrier = asyncio.Barrier(2)
+    results = await asyncio.gather(
+        _write_after_barrier(redis_queue, snap_a, barrier),
+        _write_after_barrier(redis_queue, snap_b, barrier),
+        return_exceptions=True,
+    )
+
+    assert any(isinstance(r, TaskWriteConflictError) for r in results), (
+        "expected the loser to be rejected, but both writes succeeded"
+    )
+
+    final = await redis_queue.get_task(task_id)
+    assert final.status == TaskStatus.COMPLETED
+    # A real result is preserved; the version was bumped exactly once.
+    assert final.version == 1
+    assert "data" in final.result
+
+
+async def _write_after_barrier(redis_queue, task, barrier):
+    await barrier.wait()
+    await redis_queue.update_task(task)
