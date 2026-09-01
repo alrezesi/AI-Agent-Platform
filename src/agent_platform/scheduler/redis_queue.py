@@ -73,7 +73,7 @@ class RedisTaskQueue(BaseTaskQueue):
         orm.payload = task.payload
         orm.priority = int(task.priority.value)
         orm.status = task.status.value
-        orm.created_at = _to_naive_utc(task.created_at)
+        orm.created_at = _to_naive_utc(task.created_at) or datetime.now(UTC).replace(tzinfo=None)
         orm.started_at = _to_naive_utc(task.started_at)
         orm.completed_at = _to_naive_utc(task.completed_at)
         orm.result = _normalize_json(task.result)
@@ -291,8 +291,8 @@ class RedisTaskQueue(BaseTaskQueue):
         await self._save_task_to_db(task)
 
         try:
-            existing = await self._task_exists(task.task_id)
-            if existing:
+            in_redis = await self._task_exists(task.task_id)
+            if in_redis:
                 return
             await self.redis.set(self._task_key(task.task_id), task.model_dump_json(), ex=self.ttl_seconds)
             await self.redis.set(
