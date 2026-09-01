@@ -43,6 +43,21 @@ def read_load_metrics(path: Path) -> dict[str, Any]:
     metrics = data["metrics"]
     if not isinstance(metrics, dict):
         raise ValueError("load metrics must be a JSON object")
+
+    # Refuse to report a degenerate all-zero load test.  A valid load test
+    # that actually drove the stack must have a positive throughput and at
+    # least one of the latency figures must be non-zero.  Anything else means
+    # the load test never ran / never measured anything, and printing
+    # "Throughput: 0.0 tasks/sec" would be misleading.
+    throughput = float(metrics.get("throughput", 0.0))
+    redis_lat = float(metrics.get("redis_latency_ms", 0.0))
+    pg_lat = float(metrics.get("postgres_latency_ms", 0.0))
+    if throughput <= 0.0 and redis_lat == 0.0 and pg_lat == 0.0:
+        raise ValueError(
+            "Load metrics are all-zero (throughput=0, redis_latency_ms=0, "
+            "postgres_latency_ms=0). The load test did not produce a valid "
+            "measurement; refusing to report a degenerate result."
+        )
     return metrics
 
 
