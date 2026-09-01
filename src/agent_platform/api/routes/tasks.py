@@ -6,6 +6,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 
 from src.agent_platform.core.task import TaskPriority, TaskStatus
 from src.agent_platform.monitoring.request_id import get_request_id
+from src.agent_platform.scheduler.exceptions import CrossTenantTaskConflictError
 from src.agent_platform.scheduler.models import TaskFilterOptions
 from src.agent_platform.scheduler.scheduler import TaskScheduler
 
@@ -39,17 +40,20 @@ async def submit_task(
     scheduler: TaskScheduler = Depends(get_scheduler),
 ):
     """Submit a new task."""
-    task_id = await scheduler.submit_task(
-        agent_id=agent_id,
-        task_type=task_type,
-        payload=payload,
-        task_id=task_id,
-        priority=priority,
-        timeout_seconds=timeout_seconds,
-        max_retries=max_retries,
-        tenant_id=tenant_id,
-        request_id=get_request_id(),
-    )
+    try:
+        task_id = await scheduler.submit_task(
+            agent_id=agent_id,
+            task_type=task_type,
+            payload=payload,
+            task_id=task_id,
+            priority=priority,
+            timeout_seconds=timeout_seconds,
+            max_retries=max_retries,
+            tenant_id=tenant_id,
+            request_id=get_request_id(),
+        )
+    except CrossTenantTaskConflictError as exc:
+        raise HTTPException(status_code=409, detail=f"Task id conflict: {exc}") from exc
     return {"task_id": task_id, "status": "submitted"}
 
 
