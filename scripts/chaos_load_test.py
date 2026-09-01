@@ -68,25 +68,62 @@ async def _ping_postgres(client: httpx.AsyncClient, samples: int = 20) -> float:
 
 
 def _docker_stats() -> tuple[dict, dict]:
-    cmd = [
-        "docker",
-        "stats",
-        "--no-stream",
-        "--format",
-        "{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}",
-        *WORKER_CONTAINERS,
+    """
+    Sample CPU/Memory for running worker containers.
+
+    Container names are DISCOVERED rather than hardcoded: the load test must
+    not crash merely because the compose project name differs from the
+    previous run.  We match any running container whose name contains
+    ``worker``.  If no worker containers are running (e.g. the audit is run
+    against a lightweight stack without dedicated worker containers), we
+    return empty dicts rather than aborting the whole load test — CPU/Memory
+    are informational, not a pass/fail signal.
+    """
+    cpu: dict[str, str] = {}
+    memory: dict[str, str] = {}
+
+    # Discover candidate worker containers currently running.
+    try:
+        list_cmd = [
+            "docker", "ps",
+            "--format", "{{.Names}}",
+            "--filter", "name=worker",
+        ]
+        listed = subprocess.run(list_cmd, capture_output=True, text=True, timeout=15)
+    except Exception as exc:
+        logger.debug("docker ps failed: %s", exc)
+        return cpu, memory
+
+    names = [n.strip() for n in listed.stdout.splitlines() if n.strip()]
+    if not names:
+        return cpu, memory
+
+    stats_cmd = [
+        "docker", "stats", "--no-stream", "--format", "{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}",
+        *names,
     ]
-    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-    cpu = {}
-    memory = {}
+    try:
+        result = subprocess.run(stats_cmd, capture_output=True, text=True, timeout=30)
+    except Exception as exc:
+        logger.debug("docker stats failed: %s", exc)
+        return cpu, memory
+
     for line in result.stdout.splitlines():
-        name, cpu_perc, mem_usage = line.split("|", 2)
-        cpu[name] = cpu_perc.strip()
-        memory[name] = mem_usage.strip()
+        parts = line.split("|", 2)
+        if len(parts) != 3:
+            continue
+        name, cpu_perc, mem_usage = parts
+        cpu[name.strip()] = cpu_perc.strip()
+        memory[name.strip()] = mem_usage.strip()
     return cpu, memory
 
 
-async def _submit_and_wait(client: httpx.AsyncClient, task_id: str, headers: dict[str, str]) -> tuple[float, int]:
+async def _submit_and_wait(
+    client: httpx.AsyncClient,
+    task_id: str,
+    headers: dict[str, str],
+    poll_timeout: float = 120.0,
+) -> tuple[float, int]:
     started = time.perf_counter()
     response = await client.post(
         "/tasks/",
@@ -102,12 +139,18 @@ async def _submit_and_wait(client: httpx.AsyncClient, task_id: str, headers: dic
     )
     response.raise_for_status()
 
+    deadline = asyncio.get_running_loop().time() + poll_timeout
     while True:
         task = await client.get(f"/tasks/{task_id}")
         task.raise_for_status()
         body = task.json()
         if body["status"] in {"completed", "failed", "timeout", "cancelled"}:
             break
+        if asyncio.get_running_loop().time() >= deadline:
+            raise TimeoutError(
+                f"task {task_id} did not reach a terminal state within {poll_timeout}s "
+                f"(last status: {body['status']})"
+            )
         await asyncio.sleep(0.05)
 
     elapsed = time.perf_counter() - started
@@ -166,8 +209,26 @@ async def run_load(total_tasks: int, concurrency: int) -> LoadMetrics:
         postgres_latency = await _ping_postgres(client)
         await redis.aclose()
 
+    # GUARD against the defect that produced the all-zero report: if the run
+    # completed but measured nothing (no successful tasks, zero elapsed
+    # time, or no latency signal), it is not a valid load test — it means
+    # the stack was not actually processing tasks.  Raising here prevents
+    # a degenerate all-zero JSON from being written and silently reported
+    # as "Throughput: 0.0 tasks/sec".
+    if not durations:
+        raise RuntimeError(
+            f"Load test completed with 0 successful tasks out of {total_tasks} "
+            f"(errors={errors}). The stack is not processing tasks — refusing "
+            f"to write a degenerate all-zero result."
+        )
+    if not elapsed:
+        raise RuntimeError(
+            "Load test recorded zero elapsed time — refusing to report a "
+            "degenerate throughput figure."
+        )
+
     return LoadMetrics(
-        throughput=total_tasks / elapsed if elapsed else 0.0,
+        throughput=total_tasks / elapsed,
         p50=_percentile(durations, 0.50),
         p95=_percentile(durations, 0.95),
         p99=_percentile(durations, 0.99),
