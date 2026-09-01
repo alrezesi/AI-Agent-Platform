@@ -4,7 +4,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from src.agent_platform.multi_tenant.models import Tenant, TenantStatus
+from src.agent_platform.multi_tenant.models import TenantStatus
 
 logger = logging.getLogger(__name__)
 
