@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import statistics
 import subprocess
 import time
@@ -21,6 +22,8 @@ WORKER_CONTAINERS = [
     "agent_platform_worker_1",
     "agent_platform_worker_2",
 ]
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
