@@ -17,7 +17,9 @@ else:
     RedisClient = Any
 
 from src.agent_platform.core.task import Task, TaskPriority, TaskStatus
+from src.agent_platform.recovery.idempotency import IdempotencyManager
 from src.agent_platform.scheduler.base import BaseTaskQueue
+from src.agent_platform.scheduler.exceptions import TaskWriteConflictError
 from src.agent_platform.scheduler.models import TaskFilterOptions, TaskStats
 from src.agent_platform.scheduler.postgres_tasks import TaskORM, _normalize_json, _to_naive_utc
 
@@ -35,11 +37,18 @@ class RedisTaskQueue(BaseTaskQueue):
     PROCESSING_KEY = "tasks:processing"
     TASK_PREFIX = "tasks:data:"
     META_PREFIX = "tasks:meta:"
+    IDEMPOTENCY_TTL = 86400
 
     def __init__(self, redis_client: RedisClient, ttl_seconds: int = 86400, session_factory: Any | None = None):
         self.redis = redis_client
         self.ttl_seconds = ttl_seconds
         self.session_factory = session_factory
+        # Cross-process idempotency guard for task enqueue.  Backed by Redis so
+        # it works correctly across the separate API/worker processes (an
+        # in-memory asyncio.Lock + dict would be process-local only).
+        self.idempotency = IdempotencyManager(
+            redis_client=redis_client, ttl_seconds=self.IDEMPOTENCY_TTL
+        )
 
     def _priority_score(self, task: Task) -> float:
         return task.priority.value + (task.created_at.timestamp() % 1)
@@ -56,69 +65,119 @@ class RedisTaskQueue(BaseTaskQueue):
         except Exception:
             return False
 
+    @staticmethod
+    def _apply_task_fields(orm: TaskORM, task: Task) -> None:
+        """Copy Task fields onto a TaskORM instance (no commit)."""
+        orm.agent_id = task.agent_id
+        orm.task_type = task.type
+        orm.payload = task.payload
+        orm.priority = int(task.priority.value)
+        orm.status = task.status.value
+        orm.created_at = _to_naive_utc(task.created_at)
+        orm.started_at = _to_naive_utc(task.started_at)
+        orm.completed_at = _to_naive_utc(task.completed_at)
+        orm.result = _normalize_json(task.result)
+        orm.error = task.error
+        orm.retry_count = task.retry_count
+        orm.max_retries = task.max_retries
+        orm.timeout_seconds = task.timeout_seconds
+        orm.tenant_id = task.tenant_id
+        orm.lease_owner = getattr(task, "lease_owner", None)
+        orm.lease_expires_at = _to_naive_utc(getattr(task, "lease_expires_at", None))
+        orm.request_id = getattr(task, "request_id", None)
+        orm.message_id = getattr(task, "message_id", None)
+        orm.execution_id = getattr(task, "execution_id", None)
+        orm.error_category = getattr(task, "error_category", None)
+        orm.retry_history = _normalize_json(getattr(task, "retry_history", None))
+
     async def _save_task_to_db(self, task: Task) -> None:
+        """Persist a task to PostgreSQL with optimistic locking on ``version``.
+
+        Every successful write increments the row's ``version``.  The UPDATE is
+        guarded by ``WHERE version = <expected>`` so that two concurrent
+        writers cannot both succeed: the first to commit wins and bumps the
+        version; the second matches zero rows and raises
+        :class:`TaskWriteConflictError` instead of silently overwriting the
+        first writer's changes (the lost-update bug the ``version`` field was
+        originally meant to prevent).
+        """
         if not self.session_factory:
             return
+        from sqlalchemy import update as sa_update
         from sqlalchemy.exc import IntegrityError
+
+        expected_version = task.version
 
         async with self.session_factory() as session:
             existing = await session.get(TaskORM, task.task_id)
-            if existing:
-                existing.agent_id = task.agent_id
-                existing.task_type = task.type
-                existing.payload = task.payload
-                existing.priority = int(task.priority.value)
-                existing.status = task.status.value
-                existing.created_at = _to_naive_utc(task.created_at)
-                existing.started_at = _to_naive_utc(task.started_at)
-                existing.completed_at = _to_naive_utc(task.completed_at)
-                existing.result = _normalize_json(task.result)
-                existing.error = task.error
-                existing.retry_count = task.retry_count
-                existing.max_retries = task.max_retries
-                existing.timeout_seconds = task.timeout_seconds
-                existing.tenant_id = task.tenant_id
-                existing.lease_owner = getattr(task, "lease_owner", None)
-                existing.lease_expires_at = _to_naive_utc(getattr(task, "lease_expires_at", None))
-                existing.request_id = getattr(task, "request_id", None)
-                existing.message_id = getattr(task, "message_id", None)
-                existing.execution_id = getattr(task, "execution_id", None)
-                existing.error_category = getattr(task, "error_category", None)
-                existing.retry_history = _normalize_json(getattr(task, "retry_history", None))
-                await session.commit()
-            else:
+            if existing is None:
+                # New task — insert.  A concurrent insert of the same task_id
+                # raises IntegrityError; fall back to a version-checked update.
+                orm = TaskORM.from_task(task)
+                orm.version = 0
+                session.add(orm)
                 try:
-                    session.add(TaskORM.from_task(task))
                     await session.commit()
+                    return
                 except IntegrityError:
-                    # Another concurrent submission inserted the same task_id.
-                    # Fall back to UPDATE so concurrent duplicates are
-                    # idempotent rather than raising a 500.
                     await session.rollback()
                     existing = await session.get(TaskORM, task.task_id)
-                    if existing:
-                        existing.agent_id = task.agent_id
-                        existing.task_type = task.type
-                        existing.payload = task.payload
-                        existing.priority = int(task.priority.value)
-                        existing.status = task.status.value
-                        existing.created_at = _to_naive_utc(task.created_at)
-                        existing.started_at = _to_naive_utc(task.started_at)
-                        existing.completed_at = _to_naive_utc(task.completed_at)
-                        existing.result = _normalize_json(task.result)
-                        existing.error = task.error
-                        existing.retry_count = task.retry_count
-                        existing.max_retries = task.max_retries
-                        existing.timeout_seconds = task.timeout_seconds
-                        existing.tenant_id = task.tenant_id
-                        existing.lease_owner = getattr(task, "lease_owner", None)
-                        existing.lease_expires_at = _to_naive_utc(getattr(task, "lease_expires_at", None))
-                        existing.request_id = getattr(task, "request_id", None)
-                        existing.message_id = getattr(task, "message_id", None)
-                        existing.execution_id = getattr(task, "execution_id", None)
-                        existing.error_category = getattr(task, "error_category", None)
-                        existing.retry_history = _normalize_json(getattr(task, "retry_history", None))
-                        await session.commit()
+                    if existing is None:
+                        # Deleted underneath us; nothing to do.
+                        return
+                    expected_version = existing.version
+
+            # Existing row: version-checked update.  Only succeeds if the row
+            # is still at the version we read, preventing lost updates.
+            self._apply_task_fields(existing, task)
+            stmt = (
+                sa_update(TaskORM)
+                .where(TaskORM.task_id == task.task_id, TaskORM.version == expected_version)
+                .values(**self._orm_values(existing, new_version=expected_version + 1))
+                .returning(TaskORM.task_id)
+            )
+            result = await session.execute(stmt)
+            if result.scalar_one_or_none() is None:
+                # Version changed under us — another writer won the race.
+                fresh = await session.get(TaskORM, task.task_id)
+                raise TaskWriteConflictError(
+                    task.task_id,
+                    expected_version=expected_version,
+                    actual_version=getattr(fresh, "version", None) if fresh else None,
+                )
+            await session.commit()
+            # Sync the new version back onto the in-memory task so downstream
+            # consumers (e.g. the Redis write in update_task) observe the
+            # authoritative version, not a stale value.
+            task.version = expected_version + 1
+
+    @staticmethod
+    def _orm_values(orm: TaskORM, new_version: int) -> dict[str, Any]:
+        """Build the ``values()`` dict for a version-checked UPDATE."""
+        return {
+            "agent_id": orm.agent_id,
+            "task_type": orm.task_type,
+            "payload": orm.payload,
+            "priority": orm.priority,
+            "status": orm.status,
+            "created_at": orm.created_at,
+            "started_at": orm.started_at,
+            "completed_at": orm.completed_at,
+            "result": orm.result,
+            "error": orm.error,
+            "retry_count": orm.retry_count,
+            "max_retries": orm.max_retries,
+            "timeout_seconds": orm.timeout_seconds,
+            "tenant_id": orm.tenant_id,
+            "lease_owner": orm.lease_owner,
+            "lease_expires_at": orm.lease_expires_at,
+            "request_id": orm.request_id,
+            "message_id": orm.message_id,
+            "execution_id": orm.execution_id,
+            "error_category": orm.error_category,
+            "retry_history": orm.retry_history,
+            "version": new_version,
+        }
 
     async def _load_task_from_db(self, task_id: str, tenant_id: str | None = None) -> Task | None:
         if not self.session_factory:
@@ -178,8 +237,49 @@ class RedisTaskQueue(BaseTaskQueue):
                 stats.timeout += 1
         return stats
 
+    async def _find_existing_task(self, task_id: str) -> Task | None:
+        """Return the currently persisted task (DB first, then Redis) or None."""
+        # PostgreSQL is the source of truth.
+        task = await self._load_task_from_db(task_id)
+        if task is not None:
+            return task
+        try:
+            data = await self.redis.get(self._task_key(task_id))
+            if data:
+                return cast(Task, Task.model_validate_json(data))
+        except Exception:
+            logger.debug("Redis lookup failed for %s", task_id, exc_info=True)
+        return None
+
     async def enqueue(self, task: Task) -> None:
         """Add a task to the queue."""
+        # Cross-process idempotency guard.  ``check_and_lock`` atomically
+        # acquires a per-task_id lock in Redis (SET NX).  If a record already
+        # exists for this task_id the operation is a duplicate:
+        #   * "processing" / "completed" -> already handled or in-flight; no-op.
+        #   * "failed"                    -> cleared so the retry can proceed.
+        # This is what makes the advertised idempotency feature actually work
+        # across the separate API/worker processes (the old in-memory
+        # implementation was process-local and never ran in this path).
+        locked = await self.idempotency.check_and_lock(task.task_id)
+        if locked is not None and locked.status in ("processing", "completed"):
+            return
+
+        # Do NOT clobber the state of a task that is already running or has
+        # finished.  A duplicate or late-retried submission for such a task_id
+        # must be a no-op that preserves the existing (in-flight or final)
+        # state, rather than resetting it to PENDING — which would silently
+        # wipe results, lease ownership and retry history.
+        existing = await self._find_existing_task(task.task_id)
+        if existing is not None and existing.status in (
+            TaskStatus.RUNNING,
+            TaskStatus.COMPLETED,
+        ):
+            # Best-effort: release the idempotency lock we just acquired so a
+            # later retry is not permanently blocked by our own stale record.
+            await self.idempotency.complete(task.task_id, None, error="superseded")
+            return
+
         task.status = TaskStatus.PENDING
         task.started_at = None
         task.completed_at = None
@@ -621,5 +721,13 @@ class RedisTaskQueue(BaseTaskQueue):
             )
             if task.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED, TaskStatus.TIMEOUT):
                 await self.redis.zrem(self.PROCESSING_KEY, task.task_id)
+                # Record the terminal outcome in the idempotency store so a
+                # later duplicate submission of the same task_id resolves to a
+                # no-op (returns the stored result) instead of re-enqueuing.
+                await self.idempotency.complete(
+                    task.task_id,
+                    task.result,
+                    error=task.error,
+                )
         except Exception:
             logger.exception("Redis task update failed for %s", task.task_id)
