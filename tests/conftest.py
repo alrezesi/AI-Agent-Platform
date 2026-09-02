@@ -81,24 +81,45 @@ def app() -> FastAPI:
 # ---------------------------------------------------------------------------
 
 def _resolve_database_url() -> str:
-    """Resolve the async PostgreSQL URL for tests.
+    """Resolve the async PostgreSQL URL for unit/race/concurrency/security
+    /observability tests.
 
-    CI exports ``DATABASE_URL`` (sync scheme, port 5432, db ``agent_platform``)
-    at the workflow level, but the unit/integration steps do *not* also export
-    ``POSTGRES_URL`` (only the concurrency/race/security/observability steps do).
-    Prefer an explicit ``POSTGRES_URL``; otherwise derive an asyncpg URL from
-    ``DATABASE_URL`` so the PostgreSQL-backed fixtures connect to the very same
-    live cluster the service containers expose.  The previous hard-coded default
-    pointed at port 5433 / db ``agent_platform_test``, neither of which exists
-    in CI, which caused every PostgreSQL-backed test to fail at setup.  Fall
-    back to the local docker-compose endpoint only when neither variable is set.
+    Test isolation from the live stack (mirror of the existing Redis
+    db-number split):
+
+    * Tests default to a dedicated ``agent_platform_test`` database on the
+      same Postgres server the live ``api`` / ``worker-1`` / ``worker-2``
+      containers talk to.  This isolates the test process from the live
+      workers' ``_recovery_loop``, which calls
+      ``reclaim_orphaned_tasks()`` every ~1s against the *shared*
+      ``tasks`` table — without DB-level isolation the workers would
+      reclaim a test's expired-lease row before the test's own
+      ``reclaim_orphaned_tasks()`` call could verify it (a 5-test flake
+      surfaced after the base-image fix made the workers actually
+      start).
+    * An explicit ``POSTGRES_URL`` env var (set by CI for the
+      concurrency / race / security / observability steps) overrides
+      the default, so CI can target whatever database its workflow
+      provisions.
+    * A bare ``DATABASE_URL`` env var (the live stack's) is intentionally
+      ignored by default for these unit/race/concurrency/security/
+      observability fixtures — the test DB is the correct target.
+
+    The e2e / chaos suites do NOT consume the fixtures defined in this
+    file (``clean_db`` / ``redis_queue`` / ``pg_engine``); they only use
+    a session-scoped ``docker_stack`` fixture that talks to the live
+    stack over HTTP, so this default change does not affect them.
     """
-    db_url = os.getenv("DATABASE_URL")
-    if db_url:
-        if db_url.startswith("postgresql://"):
-            return "postgresql+asyncpg://" + db_url[len("postgresql://") :]
-        return db_url
-    return "postgresql+asyncpg://agent:agent123@localhost:5433/agent_platform"
+    explicit = os.getenv("POSTGRES_URL")
+    if explicit:
+        return explicit
+
+    # The live stack's ``DATABASE_URL`` is intentionally NOT used as a
+    # fallback: it points at the same ``agent_platform`` database the
+    # workers poll, which is exactly what we are isolating from.  Tests
+    # that need the live DB (e.g. a one-off integration probe) can
+    # export ``POSTGRES_URL`` explicitly.
+    return "postgresql+asyncpg://agent:agent123@localhost:5433/agent_platform_test"
 
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
