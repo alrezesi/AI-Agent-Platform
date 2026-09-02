@@ -67,30 +67,53 @@ class LogManager:
         self._setup_logging()
 
     def _setup_logging(self) -> None:
-        """Set up Python logging."""
+        """Set up Python logging.
+
+        This is **idempotent**: ``LogManager`` is instantiated in many
+        places (per-request dependencies, the worker entrypoint, and
+        several test modules).  Attaching a handler on every construction
+        multiplies every log line by the number of instantiations — e.g.
+        the race test's ``dequeue: version conflict for ...`` line was
+        emitted 6× to stdout while pytest's own caplog saw it once, because
+        six ``StreamHandler``s had piled up on the root logger.  We now
+        attach each handler at most once.
+        """
         root_logger = logging.getLogger()
         root_logger.setLevel(logging.DEBUG)
 
-        # Console handler
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(logging.INFO)
-        console_formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        # Console handler — attach only if root does not already have one
+        # streaming to stdout.
+        has_console = any(
+            isinstance(h, logging.StreamHandler) and getattr(h, "stream", None) is sys.stdout
+            for h in root_logger.handlers
         )
-        console_handler.setFormatter(console_formatter)
-        root_logger.addHandler(console_handler)
-
-        # File handler (if enabled)
-        if self.log_to_file:
-            import os
-            os.makedirs(os.path.dirname(self.log_file_path), exist_ok=True)
-            file_handler = logging.FileHandler(self.log_file_path)
-            file_handler.setLevel(logging.DEBUG)
-            file_formatter = logging.Formatter(
+        if not has_console:
+            console_handler = logging.StreamHandler(sys.stdout)
+            console_handler.setLevel(logging.INFO)
+            console_formatter = logging.Formatter(
                 '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
             )
-            file_handler.setFormatter(file_formatter)
-            root_logger.addHandler(file_handler)
+            console_handler.setFormatter(console_formatter)
+            root_logger.addHandler(console_handler)
+
+        # File handler (if enabled) — also attach at most once.
+        if self.log_to_file:
+            import os
+
+            log_file_abs = os.path.abspath(self.log_file_path)
+            os.makedirs(os.path.dirname(log_file_abs), exist_ok=True)
+            has_file = any(
+                isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", None) == log_file_abs
+                for h in root_logger.handlers
+            )
+            if not has_file:
+                file_handler = logging.FileHandler(log_file_abs)
+                file_handler.setLevel(logging.DEBUG)
+                file_formatter = logging.Formatter(
+                    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+                )
+                file_handler.setFormatter(file_formatter)
+                root_logger.addHandler(file_handler)
 
     def log(
         self,
