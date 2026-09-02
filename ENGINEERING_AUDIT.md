@@ -871,3 +871,154 @@ constraint was preserved.
   end-to-end Docker pipeline (API ? Postgres ? Redis ? worker ?
   Postgres ? API) now reaches a terminal state deterministically.
 
+---
+
+## Addendum 3 — Test isolation from the live workers' shared Postgres `tasks` table
+
+After Addendum 2, 5 tests began flaking 100% of the time when the
+local Docker stack (`worker-1` / `worker-2` containers up) was left
+running through a full `pytest` run. They were:
+
+* `tests/concurrency/test_concurrency_real.py::test_concurrent_requeue_after_lease_expiry`
+* `tests/race/test_race_conditions.py::test_concurrent_reclaim_does_not_double_increment_retry`
+* `tests/race/test_race_conditions.py::test_execution_id_is_unique_per_claim`
+* `tests/race/test_race_conditions.py::test_concurrent_reclaim_and_dequeue_no_lost_task`
+* `tests/unit/test_chaos_hardening.py::test_worker_failure_requeues_expired_task`
+
+### Evidence (probes inside the running stack, not assumptions)
+
+All five share the same pattern: `dequeue(lease_seconds=0.5)` ?
+`await asyncio.sleep(0.7)` ? call `reclaim_orphaned_tasks()` and
+expect the row to be reclaimed because its lease is expired.
+
+A standalone probe (`probe_reclaim.py`, run against the same
+Postgres + Redis as the tests) reproduced the test pattern exactly
+and printed the actual row state at the moment the test would have
+called `reclaim_orphaned_tasks()`:
+
+* With `worker-1` / `worker-2` **stopped**:
+  ```
+  [probe] post-dequeue DB row: status=running lease_expires_at=2026-09-02 16:31:05.455782 version=1
+  [probe] DB now right after dequeue: 2026-09-02 16:31:04.994078+00:00
+  [probe]   delta(lease - now) = 0.462s
+  [probe] slept 0.7s; actual wall sleep = 718.4ms
+  [probe] pre-reclaim DB row: status=running lease_expires_at=2026-09-02 16:31:05.455782
+  [probe]   delta(lease - now) = -0.253s
+  [probe]   status == RUNNING? True
+  [probe]   lease NOT NULL? True
+  [probe]   lease <= now? True
+  [probe] reclaim_orphaned_tasks() returned: ['probe-1']
+  ```
+  The reclaim WHERE clause is satisfied and the row is reclaimed. **PASS.**
+
+* With `worker-1` / `worker-2` **running**:
+  ```
+  [probe] post-dequeue DB row: status=running lease_expires_at=2026-09-02 16:23:52.474350 version=1
+  [probe] slept 0.7s; actual wall sleep = 729.0ms
+  [probe] pre-reclaim DB row: status=pending lease_expires_at=None
+  [probe]   status == RUNNING? False
+  [probe]   lease NOT NULL? False
+  [probe] reclaim_orphaned_tasks() returned: []
+  ```
+  The row is already in `pending` with `lease_owner = NULL` by the
+  time the test gets to its reclaim call. Something in the live
+  process is already reclaiming the test's row first. **FAIL.**
+
+### Diagnosis (not A, not B — a structural third case)
+
+* **It is not (A) "host-load / resource-contention flakiness".** The
+  tests pass 4 out of 4 times in isolation (no workers, no other
+  load) and fail 100% of the time with workers up. The mechanism is
+  not random CPU/DB latency — it is a specific background process
+  reaping a specific row.
+
+* **It is not (B) "a regression in `reclaim_orphaned_tasks()` or
+  `dequeue()`".** The dequeue / version-check fix from Addendum 1
+  did not modify `reclaim_orphaned_tasks()` (it operates on
+  Postgres only and its WHERE clause is unchanged). The
+  `reclaim_orphaned_tasks()` code path runs correctly in isolation.
+
+The actual cause: the live `worker-1` / `worker-2` containers run a
+`_recovery_loop` that calls `reclaim_orphaned_tasks()` every
+`max(poll_interval, 1.0)` seconds. The reclaim path is a Postgres
+operation — `UPDATE tasks SET status='pending', lease_owner=NULL,
+... WHERE status='running' AND lease_expires_at <= now() RETURNING
+task_id`. Redis db-numbers already isolate the test (db 0) from
+the workers (db 1), but the reclaim path is Postgres-only, and the
+test fixtures and the live workers were both talking to the **same
+Postgres database** (`agent_platform` on `localhost:5433` /
+`postgres:5432`). The workers' recovery loop therefore reclaims the
+test's expired-lease row before the test's own reclaim call
+verifies it. The probe above shows the row already `pending`,
+`lease_owner = NULL` by the time the test reaches the assertion.
+
+This was a **latent** shared-DB problem. The previous broken
+Alpine/PyTorch base image kept the workers crash-looping in
+`import torch` (see Addendum 2), so they never actually ran
+`_recovery_loop` against the shared table; the dequeue-lost-update
+fix and Addendum 2 together made the workers start working, which
+is what surfaced this latent issue.
+
+### Fix (mirrors the existing Redis db-number isolation)
+
+* Created a dedicated `agent_platform_test` database on the same
+  Postgres container the live stack uses (no new Postgres
+  container/service — purely a database-name-level separation,
+  exactly parallel to how Redis is split by db number).
+* `tests/conftest.py::_resolve_database_url()` now defaults to
+  `postgresql+asyncpg://agent:agent123@localhost:5433/agent_platform_test`
+  when `POSTGRES_URL` is not set, and explicitly **ignores** the
+  live stack's `DATABASE_URL` env var for these unit/race/
+  concurrency/security/observability fixtures (the live DB is
+  exactly what we are isolating from; only an explicit `POSTGRES_URL`
+  override is honored). The conftest's existing
+  `_run_migrations_subprocess` (which calls `alembic upgrade head`
+  against the configured `POSTGRES_URL`) automatically applies the
+  full migration set to the new test database, so there is no
+  schema-drift risk.
+* The e2e / chaos suites **do not** consume any of the fixtures
+  defined in this file (they only use a session-scoped
+  `docker_stack` fixture that talks to the live stack over HTTP),
+  so this default change does not affect them — they continue to
+  go through the real `api` / `worker-1` / `worker-2` /
+  `agent_platform` Postgres database, which is what end-to-end /
+  chaos testing means.
+* `docker-compose.yml` and the application code (`src/agent_platform/`)
+  are completely untouched. The 2-worker constraint, the Dockerfile
+  base-image fix, and the dequeue() version-conflict fix are all
+  preserved unchanged.
+
+### Verification
+
+* The 5 previously-flaky tests now pass **4/4 consecutive runs
+  with the live `worker-1` / `worker-2` containers up**:
+  `5 passed in 17.50s` ? `5 passed in 18.49s` ? `5 passed in 17.13s`
+  ? `5 passed in 18.48s`. No flakiness, no timing change in the
+  tests.
+* The 6 e2e/chaos tests from Addendum 2 still pass against the
+  live stack; a targeted run of the 6 + 5 in one pytest invocation
+  produces `11 passed in 84.61s` (0:01:24).
+* Database-level isolation confirmed by querying the live and test
+  DBs after a test run:
+  ```
+  $ docker exec agent_platform_postgres psql -U agent -d agent_platform -c "SELECT COUNT(*) FROM tasks;"
+   count
+  -------
+       1
+  $ docker exec agent_platform_postgres psql -U agent -d agent_platform_test -c "SELECT COUNT(*) FROM tasks;"
+   count
+  -------
+       0
+  ```
+  Rows the test fixtures write are not visible in the live DB
+  the workers poll, and vice versa.
+* Full suite with the live stack up: `319 passed, 0 failed`
+  (one prior run had a single host-load `MaxConnectionsError` on a
+  1000-concurrent-submission test that passes in isolation — same
+  shape of pre-existing host-load flake that was present before
+  this addendum and that the task explicitly distinguishes from a
+  regression of the 5 in-scope tests).
+* `dequeue()` and `reclaim_orphaned_tasks()` source code is
+  unchanged from Addendum 1 / the pre-audit state. The fix is
+  purely a test-fixture configuration change.
+
