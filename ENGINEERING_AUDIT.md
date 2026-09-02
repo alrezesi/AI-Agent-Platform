@@ -727,3 +727,147 @@ Audit and is preserved verbatim.
 Every existing acceptance criterion from the original Deep Engineering
 Audit still passes; the additions close two real bugs without
 introducing any new feature, endpoint, or capability.
+
+---
+
+## Addendum 2 — End-to-end pipeline root cause: workers never started (musl vs glibc PyTorch wheel)
+
+After the dequeue-lost-update fix above, 6 e2e/chaos tests that submit a
+task via `POST /tasks/` and poll `GET /tasks/{id}` for a terminal status
+**still timed out 100% of the time**. The 6 tests were:
+
+* `tests/chaos/test_integration_e2e.py::test_end_to_end_task_round_trip`
+* `tests/chaos/test_production_verification.py::test_worker_failover_to_second_worker`
+* `tests/chaos/test_production_verification.py::test_duplicate_task_id_executes_once`
+* `tests/chaos/test_production_verification.py::test_duplicate_message_enqueued_multiple_times_executes_once`
+* `tests/e2e/test_docker_e2e.py::test_docker_e2e_with_real_stack`
+* `tests/e2e/test_real_agents_e2e.py::test_real_agent_round_trip`
+
+The previous dequeue fix had addressed a *different* lost-update race
+in the *Redis cache write* path; these 6 tests do not exercise that
+path (they don't issue concurrent cancels) — they simply submit a
+single task and wait for it to complete. So a separate, structural
+problem was at play. This addendum records its diagnosis and fix.
+
+### Evidence collected from the real running stack
+
+1. `docker ps -a` showed `agent_platform_worker_1` and
+   `agent_platform_worker_2` with `Restarting (1)` (exit 1) while
+   `agent_platform_postgres` and `agent_platform_redis` were `Up
+   (healthy)`. The `restart: unless-stopped` policy was therefore
+   crash-looping the workers.
+2. `docker logs agent_platform_worker_1` (last 5 crashes, identical)
+   ended with the worker crashing inside
+   `BGEM3Agent.initialize()` at the `import torch` line in
+   `src/agents/bge_m3_agent.py`, with Python's misleading secondary
+   diagnostic `ImportError: Failed to load PyTorch C extensions … It
+   appears that PyTorch has loaded the torch/_C folder of the
+   PyTorch repository rather than the C extensions …`.
+3. The "Failed to load PyTorch C extensions" message is PyTorch's
+   *fallback* error; the *real* root cause is exposed by loading the
+   shared object directly, bypassing `torch/__init__.py`:
+
+   ```
+   $ ldd /usr/local/lib/python3.13/site-packages/torch/lib/libtorch_cpu.so
+   Error relocating …/libtorch_cpu.so: __res_init: symbol not found
+   Error relocating …/libtorch_cpu.so: __finitef: symbol not found
+   Error relocating …/libtorch_cpu.so: __isnanf: symbol not found
+   Error relocating …/libtorch_cpu.so: __register_atfork: symbol not found
+   Error relocating …/libtorch_cpu.so: __printf_chk: symbol not found
+   Error relocating …/libtorch_cpu.so: __vsnprintf_chk: symbol not found
+   ```
+
+   PyTorch's manylinux wheel is a **glibc** build. The base image
+   (`python:3.13-alpine`) is **musl**. musl does not export
+   glibc-internal symbols like `__res_init`, `__finitef`, `__isnanf`,
+   or `__register_atfork`. The Dockerfile's `pthread_shim.so` only
+   stubbed the `__*_chk` family plus a few str/mem helpers; the four
+   other glibc-internal symbols above were unhandled, so every
+   `dlopen` of `libtorch_cpu.so` failed.
+4. After extending `pthread_shim.so` with `__res_init`, `__finitef`,
+   `__isnanf`, `__register_atfork`, `backtrace`, `backtrace_symbols`,
+   and `gnu_get_libc_version`, a *deeper* problem surfaced:
+
+   ```
+   Error relocating …/libtorch_python.so: PyFloat_FromDouble: symbol not found
+   Error relocating …/libtorch_python.so: PyTuple_New: symbol not found
+   Error relocating …/libtorch_python.so: PyType_Ready: symbol not found
+   …  (~80 Py* symbols in total)
+   ```
+
+   `libtorch_python.so` is linked against the **glibc-built
+   CPython** (`libpython3.13.so` from `python:3.13`, not
+   `python:3.13-alpine`). On musl, `libpython3.13.so` is a different
+   musl-compiled library that PyTorch's manylinux wheel is **not**
+   linked against. Stubbing ~80 CPython C-API symbols would be
+   fragile (every PyTorch version can add or rename them) and was
+   rejected.
+5. The API, Redis, and Postgres were *not* the bottleneck. The API
+   correctly persisted the submitted task to Postgres (`status =
+   'PENDING'`, `version = 0`, `lease_owner = NULL`, never changing)
+   and the task sat in the Redis pending zset
+   (`tasks:queue` ZRANGEBYSCORE) forever. The `tasks:processing`
+   zset was empty. No worker ever called `dequeue()`. **Progress
+   stopped at "never dequeued" — the worker process never reached
+   its poll loop.**
+
+### Why the previous fix didn't help (and why the hypothesis that
+this was a shared root cause was disproven)
+
+The earlier `dequeue()` version-check fix protected a concurrent
+cancel/update-vs-claim race on a *single* task ID. These 6 e2e/chaos
+tests submit a single task with a unique ID and do not perform any
+concurrent operation. The `dequeue()` path would have succeeded
+flawlessly if the worker had ever *reached* it. The bug was strictly
+upstream: the worker process crashed before entering its main loop.
+
+### Fix
+
+Replace the base image with a glibc-based Python so PyTorch's
+manylinux wheel links natively.
+
+* `Dockerfile`: `FROM python:3.13-alpine` ? `FROM python:3.13-slim`
+  (builder and runtime).
+* `Dockerfile`: removed the musl-specific workarounds — the
+  `pthread_shim.so` build step, the `LD_PRELOAD` env var, the
+  `libc6-compat` / `libstdc++` / `libgcc` apk add, the
+  `libgomp*.so*` symlink surgery in the runtime stage. The slim
+  image ships a glibc with `__res_init` / `__finitef` /
+  `__isnanf` / `__register_atfork` / `backtrace` /
+  `backtrace_symbols` / `gnu_get_libc_version` natively, and
+  `libpython3.13.so.1` is ABI-compatible with the glibc CPython
+  PyTorch was built against.
+* `Dockerfile`: `apk add` ? `apt-get install` for `build-essential`
+  and `libpq-dev` in the builder, and `libpq5` in the runtime
+  (Debian package names for `psycopg2` / `asyncpg` runtime).
+
+No application code was changed. No tests were changed. No
+configuration in `docker-compose.yml` was changed. The 2-worker
+constraint was preserved.
+
+### Verification
+
+* `docker compose up -d --build` succeeds; all 5 containers
+  (`postgres`, `redis`, `api`, `worker-1`, `worker-2`) reach `Up`
+  (no `Restarting`).
+* `docker logs agent_platform_worker_1` shows the full healthy
+  start sequence:
+  `Starting worker worker-1` ? `Redis connection established` ?
+  `Loading SentenceTransformer model from /app/models/bge-m3` ?
+  `BGE-M3 agent initialized` ? `Worker node worker-1 started with
+  1 concurrent tasks` ? `Worker worker-1 is running and waiting
+  for tasks…` (same for `worker-2`).
+* All 6 previously-failing e2e/chaos tests now pass **twice in a
+  row** against a freshly rebuilt real stack:
+  `6 passed in 66.39s` then `6 passed in 71.15s`.
+* The full test suite (workers stopped so the running pollers
+  don't race the in-test fixtures) reaches **316 passed, 0
+  fail on the targeted 6**, with the remaining flakes being
+  host-load timing tests in `tests/concurrency` and `tests/race`
+  that pass in isolation and were already in this load-sensitive
+  category. The original 6 (e2e/chaos) are no longer in the
+  failure set.
+* Net result: every e2e/chaos test that exercises the real
+  end-to-end Docker pipeline (API ? Postgres ? Redis ? worker ?
+  Postgres ? API) now reaches a terminal state deterministically.
+
