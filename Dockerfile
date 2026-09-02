@@ -1,13 +1,13 @@
-FROM python:3.13-alpine AS builder
+FROM python:3.13-slim AS builder
 
 WORKDIR /app
 
-RUN apk add --no-cache \
-    musl-dev \
-    gcc \
-    g++ \
-    postgresql-dev \
-    curl
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        libpq-dev \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml README.md alembic.ini ./
 
@@ -15,13 +15,15 @@ RUN pip install --upgrade pip \
     && pip install --extra-index-url https://download.pytorch.org/whl/cpu -e . \
     && pip install uvicorn
 
-FROM python:3.13-alpine
+FROM python:3.13-slim
 
 WORKDIR /app
 
-RUN apk add --no-cache \
-    libpq \
-    curl
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libpq5 \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
 
 ENV PIP_NO_CACHE_DIR=1 \
     PYTHONUNBUFFERED=1 \
@@ -44,6 +46,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY src ./src
 COPY migrations ./migrations
 COPY scripts ./scripts
+COPY alembic.ini ./
 
 ENV PYTHONPATH=/app
 
