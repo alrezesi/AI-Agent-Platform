@@ -168,6 +168,33 @@ jobs:
           path: reports/diag/
           if-no-files-found: warn
 
+      - name: Publish diagnostic evidence to a public branch
+        if: always()
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -e
+          if [ ! -d reports/diag ] || [ -z "$(ls -A reports/diag 2>/dev/null)" ]; then
+            echo "No diagnostic files to publish"
+            exit 0
+          fi
+          BR="diag-evidence/run-${RUN_ID}-${RUN_ATTEMPT}"
+          DEST_DIR="diag-evidence/run-${RUN_ID}-${RUN_ATTEMPT}"
+          git config user.email "ci-bot@users.noreply.github.com"
+          git config user.name "ci-bot"
+          git checkout --orphan "$BR" 2>/dev/null || git switch --orphan "$BR"
+          # The orphan checkout shares the same worktree, so the working tree still
+          # has reports/diag. Clean anything else and stage only what we want.
+          git rm -rfq --ignore-unmatch . 2>/dev/null || true
+          mkdir -p "$DEST_DIR"
+          cp -r reports/diag/. "$DEST_DIR"/
+          echo "Run ${RUN_ID} attempt ${RUN_ATTEMPT}" > "$DEST_DIR/RUN_INFO.txt"
+          echo "URL: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" >> "$DEST_DIR/RUN_INFO.txt"
+          git add -A
+          git commit -m "diag(ci): capture evidence for run ${RUN_ID} attempt ${RUN_ATTEMPT}"
+          git push --set-upstream origin "$BR" --force
+
       - name: Chaos verification tests
         env:
           RUN_DOCKER_CHAOS: "true"
