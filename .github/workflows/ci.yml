@@ -74,7 +74,7 @@ jobs:
         run: docker build -t ai-agent-platform:ci .
 
       - name: Start stack
-        run: docker compose up -d --build postgres redis api worker-1 worker-2
+        run: docker compose up -d postgres redis api worker-1 worker-2
 
       - name: E2E tests
         env:
