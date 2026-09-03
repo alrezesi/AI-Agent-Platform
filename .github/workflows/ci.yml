@@ -35,6 +35,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://agent:agent123@localhost:5432/agent_platform
       POSTGRES_URL: postgresql+asyncpg://agent:agent123@localhost:5432/agent_platform_test
+      REDIS_HOST_PORT: 18379
       REDIS_URL: redis://localhost:6379/0
       TASK_QUEUE_BACKEND: redis
       DISABLE_AUTH: "true"
@@ -110,6 +111,8 @@ jobs:
 
       - name: Real load test
         run: python scripts/chaos_load_test.py --tasks 10000 --concurrency 500 --output load_test_results.json
+        env:
+          REDIS_URL: redis://localhost:18379/1
 
       - name: Coverage gate
         run: python scripts/report_coverage.py --minimum 85 --coverage-xml coverage.xml --unit-junit reports/unit.xml --integration-junit reports/integration.xml --e2e-junit reports/e2e.xml --chaos-junit reports/chaos.xml --concurrency-junit reports/concurrency.xml --race-junit reports/race.xml --security-junit reports/security.xml --observability-junit reports/observability.xml --load-json load_test_results.json --output CHAOS_TEST_REPORT.md

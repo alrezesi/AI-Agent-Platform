@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import statistics
 import subprocess
 import time
@@ -15,7 +16,7 @@ import httpx
 from redis.asyncio import Redis
 
 API_URL = "http://localhost:8000"
-REDIS_URL = "redis://localhost:6379/1"
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/1")
 DEFAULT_TASKS = 10_000
 DEFAULT_CONCURRENCY = 500
 WORKER_CONTAINERS = [
