@@ -67,6 +67,8 @@ jobs:
 
       - name: Integration tests
         run: pytest tests/integration --junitxml=reports/integration.xml --cov-append --cov=src/agent_platform --cov-report=term-missing
+        env:
+          TASK_QUEUE_BACKEND: memory
 
       - name: Build Docker image
         run: docker build -t ai-agent-platform:ci .
