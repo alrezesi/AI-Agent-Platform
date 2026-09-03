@@ -85,6 +85,46 @@ jobs:
         env:
           TASK_QUEUE_BACKEND: memory
 
+      - name: Cache BGE-M3 model across CI runs
+        uses: actions/cache@v4
+        with:
+          path: models/bge-m3
+          key: bge-m3-v1
+          enableCrossOsArchive: true
+
+      - name: Ensure BGE-M3 model is present (CI workers crash-loop without it)
+        # Workers bind-mount ./models -> /app/models and run_worker.py
+        # validate_local_model_path() raises RuntimeError if the directory is missing.
+        # Locally the model is gitignored (2.27 GB) and only present on the
+        # developer's machine, so the E2E step used to see workers crash-looping
+        # with `Required local model not found: /app/models/bge-m3` on CI.
+        # We populate ./models/bge-m3 from HuggingFace (BAAI/bge-m3) and cache it
+        # so only the first run pays the ~2.3 GB download.
+        env:
+          HF_HUB_DOWNLOAD_TIMEOUT: 120
+        run: |
+          set -e
+          if [ -f models/bge-m3/config.json ] && [ -f models/bge-m3/pytorch_model.bin ]; then
+            echo "models/bge-m3 already populated; skipping download"
+            exit 0
+          fi
+          python - <<'PY'
+          import os
+          from huggingface_hub import snapshot_download
+          target = os.path.abspath("models/bge-m3")
+          os.makedirs(target, exist_ok=True)
+          snapshot_download(
+              repo_id="BAAI/bge-m3",
+              local_dir=target,
+              local_dir_use_symlinks=False,
+              allow_patterns=[
+                  "*.json", "*.txt", "*.model", "modules.json",
+                  "pytorch_model.bin", "*.pt", "*.jpg",
+              ],
+          )
+          PY
+          ls -la models/bge-m3 | head -25
+
       - name: Build Docker image
         run: docker build -t ai-agent-platform:ci .
 
