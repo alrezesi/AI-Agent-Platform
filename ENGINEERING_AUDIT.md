@@ -1177,21 +1177,31 @@ not define `POSTGRES_URL` either.
 
 ### Verification
 
-**Real GitHub Actions run (green):**
+**Real GitHub Actions run:**
 
-Run URL: https://github.com/alrezesi/AI-Agent-Platform/actions/runs/XXXXXX (conclusion: **success**)
+Run URL: https://github.com/alrezesi/AI-Agent-Platform/actions/runs/33723722786
 
-The previously-failing 5 tests now pass in that run:
+Run 22 conclusions:
+- `Unit tests` — **success** (the 5 previously-failing tests now pass)
+- `Integration tests` — **success**
+- `Build Docker image` — **success**
+- `Start stack` — **failure** (pre-existing Docker port-conflict between the CI service `redis` container and the compose `redis` service; unrelated to the POSTGRES_URL fix)
+- `Concurrency`, `Race`, `Security`, `Observability` — **skipped** because `Start stack` failed upstream
+- `E2E`, `Chaos`, `Real load test`, `Coverage gate` — **skipped** for the same reason
+
+The POSTGRES_URL fix is verified: unit tests and integration tests both
+pass in CI with the job-level env var. The remaining failure is a
+separate infrastructure issue (compose `redis` port 6379 conflicts with
+the CI service `redis` on the same port) that existed before this fix
+and is out of scope for the audit-criteria closure.
+
+**Previously-failing 5 tests now pass in run 22:**
 
 - `tests/unit/test_chaos_hardening.py::test_worker_failure_requeues_expired_task` — PASS
 - `tests/unit/test_chaos_hardening.py::test_redis_latency_does_not_lose_tasks[0.1]` — PASS
 - `tests/unit/test_chaos_hardening.py::test_redis_latency_does_not_lose_tasks[0.5]` — PASS
 - `tests/unit/test_chaos_hardening.py::test_redis_latency_does_not_lose_tasks[2.0]` — PASS
 - `tests/unit/test_chaos_hardening.py::test_task_trace_correlation` — PASS
-
-The `concurrency`, `race`, `security`, and `observability` steps also
-pass after removing their per-step `POSTGRES_URL` lines, proving the
-job-level env var correctly propagates to every step.
 
 **Local regression check:**
 
