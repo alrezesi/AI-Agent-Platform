@@ -34,6 +34,7 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://agent:agent123@localhost:5432/agent_platform
+      POSTGRES_URL: postgresql+asyncpg://agent:agent123@localhost:5432/agent_platform_test
       REDIS_URL: redis://localhost:6379/0
       TASK_QUEUE_BACKEND: redis
       DISABLE_AUTH: "true"
@@ -88,25 +89,21 @@ jobs:
       - name: Concurrency tests
         run: pytest tests/concurrency --junitxml=reports/concurrency.xml --cov-append --cov=src/agent_platform --cov-report=term-missing
         env:
-          POSTGRES_URL: postgresql+asyncpg://agent:agent123@localhost:5432/agent_platform
           REDIS_URL: redis://localhost:6379/0
 
       - name: Race tests
         run: pytest tests/race --junitxml=reports/race.xml --cov-append --cov=src/agent_platform --cov-report=term-missing
         env:
-          POSTGRES_URL: postgresql+asyncpg://agent:agent123@localhost:5432/agent_platform
           REDIS_URL: redis://localhost:6379/0
 
       - name: Security tests
         run: pytest tests/security --junitxml=reports/security.xml --cov-append --cov=src/agent_platform --cov-report=term-missing
         env:
-          POSTGRES_URL: postgresql+asyncpg://agent:agent123@localhost:5432/agent_platform
           REDIS_URL: redis://localhost:6379/0
 
       - name: Observability / distributed-trace tests
         run: pytest tests/observability --junitxml=reports/observability.xml --cov-append --cov=src/agent_platform --cov-report=term-missing
         env:
-          POSTGRES_URL: postgresql+asyncpg://agent:agent123@localhost:5432/agent_platform
           REDIS_URL: redis://localhost:6379/0
 
       - name: Real load test

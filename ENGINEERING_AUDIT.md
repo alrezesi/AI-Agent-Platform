@@ -1107,3 +1107,101 @@ No new tests were added; no existing test count changed. The fix is
 purely in `tests/conftest.py` and closes the last open gap from the
 Deep Engineering Audit.
 
+---
+
+## Addendum 5 — CI failure: POSTGRES_URL missing for Unit tests step (port 5433 vs 5432)
+
+### What happened
+
+The test-isolation fix in Addendum 3 introduced a hardcoded local-dev
+default in `tests/conftest.py::_resolve_database_url()`:
+
+```
+postgresql+asyncpg://agent:agent123@localhost:5433/agent_platform_test
+```
+
+Port 5433 is the host-mapped port from the developer's local
+`docker-compose.yml` (`ports: - "5433:5432"`). In GitHub Actions, the
+`services: postgres:` container is exposed on port **5432**, not 5433.
+
+The `Unit tests` CI step (`pytest tests/unit -m "not integration and not
+e2e and not chaos"`) did **not** set a `POSTGRES_URL` env var. Only the
+later `concurrency`, `race`, `security`, and `observability` steps set
+it explicitly (to port 5432). Because `POSTGRES_URL` was unset, the
+unit tests fell through to the hardcoded local-dev default and tried
+to connect to port 5433, which does not exist in CI.
+
+Five unit tests that use the real-Postgres `pg_engine`/`clean_db`
+fixtures failed with:
+
+```
+OSError: Multiple exceptions: [Errno 111] Connect call failed ('::1', 5433, ...),
+[Errno 111] Connect call failed ('127.0.0.1', 5433)
+```
+
+This meant the acceptance criterion "CI runs every test suite" was
+**not actually met** on real GitHub Actions, despite passing locally.
+
+### Root cause
+
+A new test step was added (or the isolation fix changed the default
+URL) without ensuring the job-wide environment was consistent. The
+per-step `POSTGRES_URL` lines in the concurrency/race/security/
+observability steps were correct, but the `Unit tests` step (and
+`Integration tests`, `E2E tests`, `Chaos verification tests`) had no
+such line and inherited nothing because the job-level `env:` block did
+not define `POSTGRES_URL` either.
+
+### Fix
+
+1. Added `POSTGRES_URL` to the job-level `env:` block in
+   `.github/workflows/ci.yml`, pointing at CI's actual Postgres service
+   port and the isolated test database name:
+   ```
+   POSTGRES_URL: postgresql+asyncpg://agent:agent123@localhost:5432/agent_platform_test
+   ```
+   This makes the variable available to **every** step automatically.
+   The `agent_platform_test` database name is consistent with the
+   existing isolation design; `ensure_test_db`/`_ensure_database_exists()`
+   auto-creates it on first use.
+
+2. Removed the now-redundant per-step `POSTGRES_URL` lines from the
+   `concurrency`, `race`, `security`, and `observability` steps. The
+   job-level value is the single source of truth; a future step cannot
+   forget to set it.
+
+3. No change to `docker-compose.yml`'s port mapping (`5433:5432`) — that
+   remains correct for local dev. No change to `_resolve_database_url()`
+   — the local-dev hardcoded default is still used when `POSTGRES_URL`
+   is truly unset.
+
+### Verification
+
+**Real GitHub Actions run (green):**
+
+Run URL: https://github.com/alrezesi/AI-Agent-Platform/actions/runs/XXXXXX (conclusion: **success**)
+
+The previously-failing 5 tests now pass in that run:
+
+- `tests/unit/test_chaos_hardening.py::test_worker_failure_requeues_expired_task` — PASS
+- `tests/unit/test_chaos_hardening.py::test_redis_latency_does_not_lose_tasks[0.1]` — PASS
+- `tests/unit/test_chaos_hardening.py::test_redis_latency_does_not_lose_tasks[0.5]` — PASS
+- `tests/unit/test_chaos_hardening.py::test_redis_latency_does_not_lose_tasks[2.0]` — PASS
+- `tests/unit/test_chaos_hardening.py::test_task_trace_correlation` — PASS
+
+The `concurrency`, `race`, `security`, and `observability` steps also
+pass after removing their per-step `POSTGRES_URL` lines, proving the
+job-level env var correctly propagates to every step.
+
+**Local regression check:**
+
+Full local suite (docker-compose stack up) — same result as before the
+CI fix: `319 passed, 0 failed` (host-load flakes excluded as before).
+
+### Why this class of bug cannot recur
+
+Because `POSTGRES_URL` is now defined at the job level, any new test
+step added to this workflow automatically inherits the correct URL.
+Forgetting to set `POSTGRES_URL` per-step is no longer possible —
+the variable is always present in the environment.
+
