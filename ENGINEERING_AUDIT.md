@@ -1022,3 +1022,88 @@ is what surfaced this latent issue.
   unchanged from Addendum 1 / the pre-audit state. The fix is
   purely a test-fixture configuration change.
 
+---
+
+## Addendum 4 — Automatic, idempotent test-DB creation
+
+The `agent_platform_test` database (the isolated test database used by
+unit/race/concurrency/security/observability fixtures, mirroring the
+existing Redis db-0/db-1 split) previously existed only because it was
+created by hand once. Nothing in the repo created it automatically, so
+a fresh clone, a fresh CI runner, or a wiped Postgres volume
+(`docker compose down -v`) would fail every one of those test suites
+with "database does not exist."
+
+### Fix (`tests/conftest.py`)
+
+Before the `pg_engine` fixture creates its engine and runs
+`_run_migrations_subprocess` against `POSTGRES_URL`, a new
+session-scoped `ensure_test_db` fixture now guarantees the target
+database exists:
+
+1. The database name is parsed out of `POSTGRES_URL` by
+   `_parse_database_name()`.
+2. An admin connection is opened to the same Postgres server's default
+   `postgres` database (same host/port/credentials, different database
+   name in the connection string).
+3. Existence is checked explicitly
+   (`SELECT 1 FROM pg_database WHERE datname = :name`) and
+   `CREATE DATABASE <name>` runs only if the row is missing.
+4. `CREATE DATABASE` cannot run inside a transaction in Postgres; the
+   connection used for this is in autocommit mode (asyncpg default).
+5. Only the specific `asyncpg.exceptions.DuplicateDatabaseError` is
+   caught — unrelated errors are not swallowed.
+6. The fixture is session-scoped (once per test run) but idempotent:
+   calling it against an already-existing database is a silent no-op.
+
+### Verification
+
+* **Fresh-DB auto-creation proof:**
+  ```
+  $ docker exec agent_platform_postgres psql -U agent -d postgres -c "DROP DATABASE agent_platform_test;"
+  DROP DATABASE
+
+  $ pytest tests/concurrency tests/race tests/security tests/observability
+  ====================== 141 passed in 437.23s (0:07:17) =======================
+  ```
+  The database did not exist before the run and was created automatically
+  by `ensure_test_db`. All 141 audit tests passed.
+
+* **Idempotency proof (DB already exists):**
+  ```
+  $ pytest tests/concurrency tests/race tests/security tests/observability
+  ====================== 141 passed in 432.89s (0:07:12) =======================
+  ```
+  Second consecutive run with the database already present. No
+  "already exists" error, no failure.
+
+* **CI `POSTGRES_URL` override path:**
+  CI sets `POSTGRES_URL=postgresql+asyncpg://agent:agent123@localhost:5432/agent_platform`
+  for the concurrency/race/security/observability steps. The
+  `agent_platform` database already exists there (it is the
+  `POSTGRES_DB` initialized by the service container), so the
+  existence check returns a row and `CREATE DATABASE` is never issued.
+  Verified locally:
+  ```
+  $ POSTGRES_URL=postgresql+asyncpg://agent:agent123@localhost:5433/agent_platform \
+    pytest tests/concurrency/test_concurrency_real.py::test_100_concurrent_submissions_real_queue -xvs
+  ============================= 1 passed in 10.16s ==============================
+  ```
+  No regression on the CI path.
+
+### Test counts after this addendum
+
+| Suite | Before | After | ? | Result |
+| ----- | ----: | ----: | -: | -----: |
+| Concurrency (in-memory + Redis + PostgreSQL) | 51 | 51 | 0 | **PASS** |
+| Race conditions | 21 | 21 | 0 | **PASS** |
+| Security (authorization + IDOR + input + audit + regression + monitoring) | 65 | 65 | 0 | **PASS** |
+| Observability / distributed trace | 4 | 4 | 0 | **PASS** |
+| Integration | 15 | 15 | 0 | **PASS** |
+| Unit | 157 | 157 | 0 | **PASS** |
+| **Grand total** | **313** | **313** | **0** | **PASS** |
+
+No new tests were added; no existing test count changed. The fix is
+purely in `tests/conftest.py` and closes the last open gap from the
+Deep Engineering Audit.
+

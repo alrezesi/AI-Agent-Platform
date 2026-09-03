@@ -126,6 +126,70 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 POSTGRES_URL = os.getenv("POSTGRES_URL") or _resolve_database_url()
 
 
+def _parse_database_name(url: str) -> str:
+    """Extract the database name from a PostgreSQL URL."""
+    # Handle postgresql+asyncpg:// and postgresql:// prefixes
+    if "+asyncpg://" in url:
+        url = url.split("+asyncpg://", 1)[1]
+    elif "postgresql://" in url:
+        url = url.split("postgresql://", 1)[1]
+    # url is now host:port/dbname or host/dbname
+    path = url.split("/", 1)[1] if "/" in url else url
+    # Remove query string if present
+    db_name = path.split("?")[0]
+    return db_name
+
+
+async def _ensure_database_exists(db_url: str) -> None:
+    """Idempotently ensure the target PostgreSQL database exists.
+
+    Connects to the ``postgres`` admin database on the same server,
+    checks for the target database, and runs ``CREATE DATABASE`` only
+    if it is missing.  Safe to call multiple times per test run.
+    """
+    import asyncpg
+
+    db_name = _parse_database_name(db_url)
+
+    # Build the admin connection URL by swapping the database name for
+    # the default ``postgres`` database, preserving host/port/credentials.
+    # asyncpg requires a plain ``postgresql://`` scheme, not SQLAlchemy's
+    # ``postgresql+asyncpg://``.
+    admin_url = db_url
+    if admin_url.startswith("postgresql+asyncpg://"):
+        admin_url = "postgresql://" + admin_url[len("postgresql+asyncpg://"):]
+    # Replace the database path component with /postgres
+    admin_url = admin_url.rsplit("/", 1)[0] + "/postgres"
+
+    conn = await asyncpg.connect(admin_url)
+    try:
+        exists = await conn.fetchval(
+            "SELECT 1 FROM pg_database WHERE datname = $1", db_name
+        )
+        if not exists:
+            # CREATE DATABASE cannot run inside a transaction in Postgres;
+            # asyncpg connections are autocommit by default, so this is safe.
+            await conn.execute(f'CREATE DATABASE "{db_name}"')
+    except asyncpg.exceptions.DuplicateDatabaseError:
+        # Already exists — idempotent no-op.
+        pass
+    finally:
+        await conn.close()
+
+
+@pytest.fixture(scope="session")
+def ensure_test_db():
+    """Ensure the target test database exists before any tests run."""
+    import asyncio
+
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(_ensure_database_exists(POSTGRES_URL))
+    finally:
+        loop.close()
+    yield
+
+
 def _docker_available() -> bool:
     import subprocess
 
@@ -152,7 +216,7 @@ def docker_ready():
 
 
 @pytest.fixture
-async def pg_engine():
+async def pg_engine(ensure_test_db):
     """Create an async PostgreSQL engine. Function-scoped to avoid
     cross-loop issues with pytest-asyncio."""
     engine = create_async_engine(POSTGRES_URL, pool_size=2, max_overflow=2)
