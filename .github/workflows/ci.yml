@@ -184,19 +184,21 @@ jobs:
           fi
           BR="diag-evidence/run-${RUN_ID}-${RUN_ATTEMPT}"
           DEST_DIR="diag-evidence/run-${RUN_ID}-${RUN_ATTEMPT}"
-          git config user.email "ci-bot@users.noreply.github.com"
-          git config user.name "ci-bot"
-          git checkout --orphan "$BR" 2>/dev/null || git switch --orphan "$BR"
-          # The orphan checkout shares the same worktree, so the working tree still
-          # has reports/diag. Clean anything else and stage only what we want.
-          git rm -rfq --ignore-unmatch . 2>/dev/null || true
-          mkdir -p "$DEST_DIR"
-          cp -r reports/diag/. "$DEST_DIR"/
-          echo "Run ${RUN_ID} attempt ${RUN_ATTEMPT}" > "$DEST_DIR/RUN_INFO.txt"
-          echo "URL: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" >> "$DEST_DIR/RUN_INFO.txt"
-          git add -A
-          git commit -m "diag(ci): capture evidence for run ${RUN_ID} attempt ${RUN_ATTEMPT}"
-          git push --set-upstream origin "$BR" --force
+          # Build the evidence tree in a fresh, empty git repo so we don't have
+          # to wrestle with an unborn HEAD or the existing worktree state.
+          WORK="$(mktemp -d)"
+          git -C "$WORK" init -q -b main
+          git -C "$WORK" config user.email "ci-bot@users.noreply.github.com"
+          git -C "$WORK" config user.name "ci-bot"
+          mkdir -p "$WORK/$DEST_DIR"
+          cp -r reports/diag/. "$WORK/$DEST_DIR/"
+          cat > "$WORK/$DEST_DIR/RUN_INFO.txt" <<EOF
+          Run ${RUN_ID} attempt ${RUN_ATTEMPT}
+          URL: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}
+          EOF
+          git -C "$WORK" add -A
+          git -C "$WORK" commit -q -m "diag(ci): capture evidence for run ${RUN_ID} attempt ${RUN_ATTEMPT}"
+          git -C "$WORK" push --set-upstream origin "$BR" --force
 
       - name: Chaos verification tests
         env:
