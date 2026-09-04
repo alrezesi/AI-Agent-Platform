@@ -1,5 +1,6 @@
 x-worker-common: &worker-common
   build: .
+  shm_size: '256m'
   command: ["python", "scripts/run_worker.py"]
   environment:
     TASK_QUEUE_BACKEND: redis

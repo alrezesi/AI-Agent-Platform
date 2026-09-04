@@ -1,5 +1,6 @@
 x-worker-common: &worker-common
   build: .
+  shm_size: '256m'
   command: ["python", "scripts/run_worker.py"]
   environment:
     TASK_QUEUE_BACKEND: redis
@@ -77,6 +78,7 @@ services:
   api:
     build: .
     container_name: agent_platform_api
+    shm_size: '256m'
     command: >
       sh -c "alembic upgrade head &&
              uvicorn src.agent_platform.api.main:app --host 0.0.0.0 --port 8000"
@@ -86,6 +88,8 @@ services:
       DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
       EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
       BGE_MODEL_PATH: /app/models/bge-m3
+      BGE_MODEL_DTYPE: ${BGE_MODEL_DTYPE:-float32}
+      BGE_MAX_SEQ_LENGTH: ${BGE_MAX_SEQ_LENGTH:-512}
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       SENTENCE_TRANSFORMERS_HOME: /app/models
@@ -134,7 +138,7 @@ services:
       TORCH_NUM_INTEROP_THREADS: "1"
       WORKER_ID: worker-1
       WORKER_PORT: "8001"
-      BGE_MAX_SEQ_LENGTH: "512"
+      BGE_MAX_SEQ_LENGTH: ${BGE_MAX_SEQ_LENGTH:-512}
       BGE_MODEL_DTYPE: ${BGE_MODEL_DTYPE:-float32}
 
   worker-2:
@@ -160,7 +164,7 @@ services:
       TORCH_NUM_INTEROP_THREADS: "1"
       WORKER_ID: worker-2
       WORKER_PORT: "8002"
-      BGE_MAX_SEQ_LENGTH: "512"
+      BGE_MAX_SEQ_LENGTH: ${BGE_MAX_SEQ_LENGTH:-512}
       BGE_MODEL_DTYPE: ${BGE_MODEL_DTYPE:-float32}
 
 volumes:
