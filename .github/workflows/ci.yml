@@ -240,22 +240,44 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
 
       - name: Capture container state before load test
-        # Diagnostic evidence: the load test's API-health check was a
-        # single, un-retried attempt, so a one-shot transient blip
-        # (e.g. a slow port-bind right after the prior test step
-        # teardown) looked identical to a genuinely down API.  Capture
-        # the actual state of the api/worker containers here so the
-        # next run makes it obvious which one happened.
+        # Diagnostic evidence: the load test's bounded-retry health
+        # check still exhausts its full window, which confirms the api
+        # container is genuinely down (not a transient blip). Capture
+        # the actual state of every relevant container at this point
+        # so the next run produces the evidence required to diagnose
+        # the real cause: ``docker compose ps`` for current state,
+        # ``docker compose logs --tail=...`` for each service to see
+        # what happened, and ``docker inspect <api> .State`` for
+        # ExitCode / OOMKilled / Error / Restarting — all of which
+        # directly answer "is the api down? why?".
         if: always()
         run: |
           echo "=========== docker compose ps ==========="
           docker compose ps || true
           echo
-          for svc in api worker-1 worker-2; do
-            echo "=========== docker compose logs --tail=200 ${svc} ==========="
-            docker compose logs --tail=200 "$svc" || true
-            echo
-          done
+          echo "=========== docker inspect agent_platform_api .State ==========="
+          docker inspect agent_platform_api --format '{{json .State}}' 2>&1 || true
+          echo
+          echo "=========== docker inspect agent_platform_api .HostConfig.Memory / .RestartCount ==========="
+          docker inspect agent_platform_api --format 'Memory={{.HostConfig.Memory}}  MemorySwap={{.HostConfig.MemorySwap}}  RestartCount={{.RestartCount}}  StartedAt={{.State.StartedAt}}  FinishedAt={{.State.FinishedAt}}' 2>&1 || true
+          echo
+          echo "=========== docker compose logs --no-color --tail=300 api ==========="
+          docker compose logs --no-color --tail=300 api 2>&1 || true
+          echo
+          echo "=========== docker compose logs --no-color --tail=300 worker-1 ==========="
+          docker compose logs --no-color --tail=300 worker-1 2>&1 || true
+          echo
+          echo "=========== docker compose logs --no-color --tail=300 worker-2 ==========="
+          docker compose logs --no-color --tail=300 worker-2 2>&1 || true
+          echo
+          echo "=========== docker compose logs --no-color --tail=100 postgres ==========="
+          docker compose logs --no-color --tail=100 postgres 2>&1 || true
+          echo
+          echo "=========== docker compose logs --no-color --tail=100 redis ==========="
+          docker compose logs --no-color --tail=100 redis 2>&1 || true
+          echo
+          echo "=========== docker stats --no-stream api worker-1 worker-2 ==========="
+          docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}' api worker-1 worker-2 2>&1 || true
 
       - name: Real load test
         run: python scripts/chaos_load_test.py --tasks 10000 --concurrency 500 --output load_test_results.json

@@ -1406,14 +1406,66 @@ resilience.
 
 ### What the diagnostic evidence shows
 
-**Pending — the next real CI run.** The diagnostic step is committed
-and will run on the next push. The captured `docker compose ps` /
-`docker compose logs` output will be pasted back from the real
-GitHub Actions run; the verdict (transient blip vs. real container
-crash, and the root cause if a crash) is recorded here once that log
-is available. Per the established pattern in this conversation, the
-user pastes the real log and the addendum is updated to reflect what
-it actually shows, rather than asserting a diagnosis in advance.
+**Pending — the next real CI run.** The retry fix from this addendum
+was deployed; on the next run the load test's health check exhausted
+its full 60 s window with `ConnectError: All connection attempts failed`,
+confirming a **sustained outage of the `api` container** (not a
+transient blip). To diagnose the actual root cause, the diagnostic
+step in `.github/workflows/ci.yml` was expanded to capture, in
+addition to `docker compose ps` and the api/worker logs, the
+following pieces of evidence directly required to answer the
+diagnostic questions:
+
+* `docker inspect agent_platform_api --format '{{json .State}}'` — the
+  container's `Status`, `Running`, `ExitCode`, `Error`, and
+  `OOMKilled` fields. If `OOMKilled: true`, the runner OOM-killed the
+  api; if `ExitCode != 0`, the api process died with an exception or
+  signal; if `Running: true`, the container is up but the port is
+  unreachable for some other reason (e.g. process hung inside a
+  request handler, or the API bound to a different interface).
+* `docker inspect agent_platform_api --format 'Memory=…  RestartCount=…'` —
+  the container's memory limit, restart count, and `StartedAt`/
+  `FinishedAt` timestamps. Confirms whether memory is actually capped
+  and how many times the api has crashed-and-restarted in this run.
+* `docker compose logs --no-color --tail=300 worker-1` /
+  `worker-2` — confirms whether only `api` is down (suggesting an
+  api-specific bug like an unhandled exception in a request handler)
+  or all three are down (suggesting a shared infrastructure cause —
+  host OOM, network problem, or a dependency that died).
+* `docker compose logs --no-color --tail=100 postgres` / `redis` —
+  confirms whether the API's dependencies are still healthy. If
+  postgres or redis died first, that explains the API as a consequence
+  rather than the cause.
+* `docker stats --no-stream api worker-1 worker-2` at this checkpoint
+  — current CPU and memory usage, to see whether the api is at/near
+  its memory limit and whether workers are similarly pressured.
+* `docker compose logs --no-color --tail=300 api` — full api log
+  leading up to the failure, including any Python traceback, an OOM
+  kill message from the kernel, a graceful shutdown line, or silence
+  (the process died without flushing anything).
+
+With this evidence in the next run's log, the diagnosis can be made
+plainly from the actual numbers and messages, not from inference:
+
+1. **Is the `api` container down?** — `docker inspect .State.Running`
+   and `.State.ExitCode` / `.State.OOMKilled` answer this directly.
+2. **What did the api log before dying?** — the captured `docker
+   compose logs --tail=300 api` block.
+3. **Are workers also down, or only `api`?** — comparison of
+   `docker compose ps` plus the workers' inspect/logs.
+4. **Are postgres/redis still healthy?** — their own logs and
+   `docker compose ps` rows.
+5. **How long after `Start stack` did this happen?** — inferred from
+   the CI run's per-step timings, visible in the run summary; combined
+   with the api's `StartedAt`/`FinishedAt` from `docker inspect` and
+   the `RestartCount`, this gives the elapsed time from stack-up to
+   the failure and pinpoints which prior step (e.g. the heaviest
+   pytest suite) was running when the api went down.
+
+Per the established pattern in this conversation, the user pastes the
+real log and the addendum is then updated with the confirmed verdict
+and the targeted fix. No fix is applied speculatively before the
+evidence is in hand.
 
 ### Why the retry fix does not hide a real crash
 
