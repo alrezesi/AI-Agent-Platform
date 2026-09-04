@@ -239,6 +239,24 @@ jobs:
         env:
           REDIS_URL: redis://localhost:6379/0
 
+      - name: Capture container state before load test
+        # Diagnostic evidence: the load test's API-health check was a
+        # single, un-retried attempt, so a one-shot transient blip
+        # (e.g. a slow port-bind right after the prior test step
+        # teardown) looked identical to a genuinely down API.  Capture
+        # the actual state of the api/worker containers here so the
+        # next run makes it obvious which one happened.
+        if: always()
+        run: |
+          echo "=========== docker compose ps ==========="
+          docker compose ps || true
+          echo
+          for svc in api worker-1 worker-2; do
+            echo "=========== docker compose logs --tail=200 ${svc} ==========="
+            docker compose logs --tail=200 "$svc" || true
+            echo
+          done
+
       - name: Real load test
         run: python scripts/chaos_load_test.py --tasks 10000 --concurrency 500 --output load_test_results.json
         env:

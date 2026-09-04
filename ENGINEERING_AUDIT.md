@@ -1339,6 +1339,106 @@ Redis is no longer possible — the single env var drives both sides.
 
 ---
 
+## Addendum 8 — `Real load test` step: single-attempt API health check looked identical to a real container crash
+
+### What happened
+
+After Addendum 6 the pipeline progressed past `E2E tests` and reached
+`Real load test`
+(`python scripts/chaos_load_test.py --tasks 10000 --concurrency 500`).
+The script aborted immediately with:
+
+```
+httpx.ConnectError: All connection attempts failed
+RuntimeError: API is not reachable at http://localhost:8000. Start the Docker stack first with: docker compose up -d
+```
+
+### Root cause
+
+`scripts/chaos_load_test.py` performed a **single, un-retried** health
+check before the load test:
+
+```python
+try:
+    health = await client.get("/health")
+    health.raise_for_status()
+except Exception as exc:
+    raise RuntimeError(
+        "API is not reachable at http://localhost:8000. ..."
+    ) from exc
+```
+
+A single transient blip (e.g. a slow TCP port-bind right after the
+prior `Security` / `Observability` test step teardown) and a genuinely
+down `api` container produced the **exact same** immediate failure.
+The evidence available in the failure log alone could not tell them
+apart, so the diagnosis was ambiguous.
+
+By contrast the e2e/chaos pytest suites
+(`tests/chaos/test_production_verification.py::_wait_for_api` and its
+siblings in `tests/e2e/`, `tests/chaos/test_integration_e2e.py`) use a
+bounded retry loop polling `GET /health` every 1–2 s for up to 180 s
+before declaring the API down. The load test had no equivalent
+resilience.
+
+### Fix
+
+1. **`scripts/chaos_load_test.py`** — replaced the single-shot health
+   check with a new helper `_wait_for_api_healthy()` that mirrors the
+   existing e2e/chaos pattern: poll `GET /health` every 1.0 s, up to
+   60.0 s total, tracking the last error message, and only raise the
+   existing `RuntimeError` (preserving the original "start the Docker
+   stack first" guidance, plus the last error as a parenthetical)
+   after the window is exhausted. On a healthy stack this resolves on
+   the first or second attempt; a genuinely down container still fails
+   with the same useful message within a minute.
+
+2. **`.github/workflows/ci.yml`** — added a new `Capture container
+   state before load test` step (with `if: always()`) immediately
+   before `Real load test`. It runs `docker compose ps` and
+   `docker compose logs --tail=200 api worker-1 worker-2` so the
+   *actual* state of the API and worker containers is visible in the
+   CI log the next time this step is hit. This makes the next
+   failure self-diagnosing: the captured logs show whether the
+   container was `Restarting` / `Exited` / `Up (healthy)` and what it
+   last printed, distinguishing a transient blip from a real crash
+   without guesswork.
+
+### What the diagnostic evidence shows
+
+**Pending — the next real CI run.** The diagnostic step is committed
+and will run on the next push. The captured `docker compose ps` /
+`docker compose logs` output will be pasted back from the real
+GitHub Actions run; the verdict (transient blip vs. real container
+crash, and the root cause if a crash) is recorded here once that log
+is available. Per the established pattern in this conversation, the
+user pastes the real log and the addendum is updated to reflect what
+it actually shows, rather than asserting a diagnosis in advance.
+
+### Why the retry fix does not hide a real crash
+
+The 60 s window is bounded: a permanently-down container still fails
+within a minute with a useful `RuntimeError` (now including the last
+health-check error). The diagnostic step runs *before* the load test,
+so even if the retry masks a blip successfully, the container state is
+captured in the log either way. If the API is genuinely down for the
+full 60 s, the diagnostic step's `docker compose ps` / `docker logs`
+output will show the cause (crash, OOM, port conflict, etc.), and the
+failure is then diagnosed and fixed by its actual root cause — not
+hidden behind a longer sleep.
+
+### Files changed
+
+* `scripts/chaos_load_test.py` — new `_wait_for_api_healthy()` helper;
+  replaced single-attempt health check in `run_load()` with one call
+  to it.
+* `.github/workflows/ci.yml` — new `Capture container state before
+  load test` step (with `if: always()`) placed immediately before
+  `Real load test`.
+* `ENGINEERING_AUDIT.md` — this addendum.
+
+---
+
 ## Addendum 7 — CI failure: `agent_platform` (DATABASE_URL) database was never migrated in CI
 
 ### What happened

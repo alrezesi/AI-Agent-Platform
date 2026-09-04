@@ -174,6 +174,39 @@ async def _get_auth_headers(client: httpx.AsyncClient) -> dict[str, str]:
     return {"X-API-Key": api_key, "X-Tenant-ID": tenant_id}
 
 
+async def _wait_for_api_healthy(
+    client: httpx.AsyncClient,
+    timeout: float = 60.0,
+    interval: float = 1.0,
+) -> None:
+    """Poll ``GET /health`` until the API returns 200 or ``timeout`` elapses.
+
+    Mirrors the retry-with-timeout pattern used by the e2e/chaos pytest
+    suites (``tests/chaos/test_production_verification.py::_wait_for_api``).
+    Resolves almost immediately on a healthy stack; only raises after the
+    full window is exhausted, so a single transient blip no longer
+    aborts the entire load test.  The exception message preserves the
+    original "start the Docker stack first" guidance, which is still
+    correct advice if the API is genuinely never up.
+    """
+    deadline = asyncio.get_running_loop().time() + timeout
+    last_error: str | None = None
+    while asyncio.get_running_loop().time() < deadline:
+        try:
+            resp = await client.get("/health")
+            if resp.status_code == 200:
+                return
+            last_error = f"status={resp.status_code} body={resp.text[:200]!r}"
+        except Exception as exc:  # pragma: no cover
+            last_error = f"{type(exc).__name__}: {exc}"
+        await asyncio.sleep(interval)
+    raise RuntimeError(
+        "API is not reachable at http://localhost:8000. "
+        "Start the Docker stack first with: docker compose up -d"
+        + (f" (last health-check error: {last_error})" if last_error else "")
+    )
+
+
 async def run_load(total_tasks: int, concurrency: int) -> LoadMetrics:
     sem = asyncio.Semaphore(concurrency)
     durations: list[float] = []
@@ -181,14 +214,7 @@ async def run_load(total_tasks: int, concurrency: int) -> LoadMetrics:
     errors = 0
 
     async with httpx.AsyncClient(base_url=API_URL, timeout=60.0, trust_env=False) as client:
-        try:
-            health = await client.get("/health")
-            health.raise_for_status()
-        except Exception as exc:
-            raise RuntimeError(
-                "API is not reachable at http://localhost:8000. "
-                "Start the Docker stack first with: docker compose up -d"
-            ) from exc
+        await _wait_for_api_healthy(client)
 
         headers = await _get_auth_headers(client)
         redis = Redis.from_url(REDIS_URL, decode_responses=True)
