@@ -1577,3 +1577,372 @@ push auto-triggers CI per the existing `on: push` configuration.
   and `Unit tests`.
 * `ENGINEERING_AUDIT.md` — this addendum.
 
+---
+
+## Addendum 8 — `Real load test` step: single-attempt API health check looked identical to a real container crash
+
+### What happened
+
+After Addendum 6 the pipeline progressed past `E2E tests` and reached
+`Real load test`
+(`python scripts/chaos_load_test.py --tasks 10000 --concurrency 500`).
+The script aborted immediately with:
+
+```
+httpx.ConnectError: All connection attempts failed
+RuntimeError: API is not reachable at http://localhost:8000. Start the Docker stack first with: docker compose up -d
+```
+
+### Root cause
+
+`scripts/chaos_load_test.py` performed a **single, un-retried** health
+check before the load test:
+
+```python
+try:
+    health = await client.get("/health")
+    health.raise_for_status()
+except Exception as exc:
+    raise RuntimeError(
+        "API is not reachable at http://localhost:8000. ..."
+    ) from exc
+```
+
+A single transient blip (e.g. a slow TCP port-bind right after the
+prior `Security` / `Observability` test step teardown) and a genuinely
+down `api` container produced the **exact same** immediate failure.
+The evidence available in the failure log alone could not tell them
+apart, so the diagnosis was ambiguous.
+
+By contrast the e2e/chaos pytest suites
+(`tests/chaos/test_production_verification.py::_wait_for_api` and its
+siblings in `tests/e2e/`, `tests/chaos/test_integration_e2e.py`) use a
+bounded retry loop polling `GET /health` every 1–2 s for up to 180 s
+before declaring the API down. The load test had no equivalent
+resilience.
+
+### Fix
+
+1. **`scripts/chaos_load_test.py`** — replaced the single-shot health
+   check with a new helper `_wait_for_api_healthy()` that mirrors the
+   existing e2e/chaos pattern: poll `GET /health` every 1.0 s, up to
+   60.0 s total, tracking the last error message, and only raise the
+   existing `RuntimeError` (preserving the original "start the Docker
+   stack first" guidance, plus the last error as a parenthetical)
+   after the window is exhausted. On a healthy stack this resolves on
+   the first or second attempt; a genuinely down container still fails
+   with the same useful message within a minute.
+
+2. **`.github/workflows/ci.yml`** — added a new `Capture container
+   state before load test` step (with `if: always()`) immediately
+   before `Real load test`. It runs `docker compose ps`, `docker
+   inspect agent_platform_api .State`, the per-service
+   `docker compose logs --no-color --tail=300`, `docker inspect
+   .HostConfig.Memory / .RestartCount`, and `docker stats --no-stream`
+   so the *actual* state of the API and worker containers is visible
+   in the CI log the next time this step is hit. This makes the next
+   failure self-diagnosing: the captured logs show whether the
+   container was `Restarting` / `Exited` / `Up (healthy)` and what it
+   last printed, distinguishing a transient blip from a real crash
+   without guesswork.
+
+### What the diagnostic evidence shows
+
+The next real CI run captured the following state of the `api`
+container:
+
+```
+docker inspect agent_platform_api .State:
+"Status":"exited","Running":false,"OOMKilled":false,"ExitCode":137,
+"StartedAt":"2026-09-04T09:43:08.35Z","FinishedAt":"2026-09-04T09:43:31.94Z"
+```
+
+`api` ran for only **23 seconds** before being killed with `SIGKILL`
+(exit 137). `OOMKilled: false` only rules out *that container's own
+cgroup memory limit* (2 GB, per `docker-compose.yml`'s `mem_limit`) as
+the trigger — it does **not** rule out a **host-level** out-of-memory
+kill, which the Linux kernel's global OOM-killer can trigger against
+any process without it being reflected in the per-container
+`OOMKilled` field. The `api` log shows no Python traceback or error
+before going silent — consistent with an external kill, not an
+application crash.
+
+`docker compose ps` at the diagnostic checkpoint only listed `postgres`
+and `redis` as running; `api` / `worker-1` / `worker-2` were gone
+entirely. The compose `restart: unless-stopped` policy means once the
+containers exited, they did not come back on their own — confirming a
+hard, unrecovered failure of all three app containers by the time
+`Real load test` runs.
+
+### Why a host-level OOM kill is the most plausible cause
+
+The job runs, concurrently by the time `Real load test` is reached:
+
+* `postgres` (cgroup `mem_limit: 512m`)
+* `redis` (`mem_limit: 256m`)
+* `api` (`mem_limit: 2g`, no BGE-M3 model in this container — it
+  proxies task execution to the workers)
+* `worker-1` and `worker-2` (each `mem_limit: 4g`) — each worker
+  process independently loads the full BGE-M3 model into RAM (each
+  model instance is its own `SentenceTransformer(...)` in its own
+  process).
+
+Plus the BGE-M3 model is loaded independently by **two** worker
+processes, and several memory- and CPU-heavy pytest suites
+(concurrency, race, security, observability) have already run against
+this same live stack. Standard `ubuntu-latest` GitHub-hosted runners
+are 2 CPU / ~7 GB RAM. The combination of two BGE-M3 model instances
+(~2 GB each in fp32) plus postgres/redis/api plus the cumulative
+working set of all the prior test steps is the most plausible
+explanation for exhausting total host memory and triggering a
+kernel-level OOM kill of `api`. Per-container `mem_limit` does not
+contain this because the constraint is total host memory, not any one
+container's individual cap.
+
+### Fix
+
+This is fundamentally a resource-capacity problem on the runner, not
+a logic bug, so the fix has to address actual memory usage.
+
+**Investigated and rejected options (with reasons):**
+
+* **Larger GitHub-hosted runner** (`ubuntu-latest-4-core` /
+  `-8-core` / `-16-core`) — these are an **organization/enterprise
+  paid entitlement** on GitHub. This is a user-owned personal repo
+  (`alrezesi/AI-Agent-Platform`), so the entitlement does not exist
+  and this option is not available without a billing change at the
+  org level.
+* **Tightening `OMP_NUM_THREADS` / `TORCH_NUM_THREADS` further** —
+  already done. The Dockerfile, both `docker-compose.yml` and
+  `docker-compose.chaos.yml`, `src/agent_platform/runtime.py`, and
+  `BGEM3Agent.initialize()` itself all set
+  `OMP_NUM_THREADS=MKL_NUM_THREADS=OPENBLAS_NUM_THREADS
+   =NUMEXPR_NUM_THREADS=VECLIB_MAXIMUM_THREADS=TORCH_NUM_THREADS
+   =TORCH_NUM_INTEROP_THREADS=1` — the thread-reduction lever is
+  already fully pulled.
+* **Reducing worker count from 2 to 1** — this would directly
+  violate the audit's "exactly 2 workers" invariant established in
+  Addendum 1 (the dequeue-lost-update fix relied on exactly 2
+  independent worker processes for its `asyncio.Barrier(2)`
+  interleaving) and is rejected on audit-integrity grounds.
+
+**Round 1 (this commit) — memory-trajectory evidence and a
+healthcheck log-noise fix.** Before applying any application-code
+change that could compromise the audit's real-test guarantees, the
+next CI run's actual memory usage across the heavy pytest suites is
+captured so the targeted fix is informed by the real numbers, not
+guessed:
+
+1. **`docker-compose.yml`** — `pg_isready -U agent` (which defaults to
+   a database matching the username `agent`, which does not exist) is
+   replaced with `pg_isready -U agent -d agent_platform`. Postgres
+   stays reported `healthy` either way, but the previous healthcheck
+   produced a `FATAL: database "agent" does not exist` log line every
+   5 s for the entire lifetime of the container — harmless, but it
+   cluttered diagnostic logs and nearly misdirected this
+   investigation. After the fix the postgres log should be clean.
+
+2. **`.github/workflows/ci.yml`** — six new `Memory snapshot after
+   <step>` steps (with `if: always()`) are inserted between the
+   heavy pytest suites, plus a `Memory snapshot after load test`
+   step after `Real load test`. Each runs `docker stats --no-stream`
+   for the api/worker-1/worker-2/postgres/redis containers and a
+   targeted `docker inspect` (state / restartCount / oomKilled /
+   exitCode / startedAt) for api/worker-1/worker-2. Combined with the
+   pre-existing pre-E2E and post-E2E diagnostic steps, this produces
+   a memory-and-state trajectory through the entire run:
+
+   * after `Start stack` (pre-E2E diagnostic)
+   * after `E2E tests` (post-E2E diagnostic)
+   * after `Chaos verification tests`
+   * after `Concurrency tests`
+   * after `Race tests`
+   * after `Security tests`
+   * after `Observability tests`
+   * before `Real load test` (the expanded capture-container-state
+     step)
+   * after `Real load test`
+
+   From these seven points, the next run's log shows whether total
+   host memory climbs steadily across the heavy pytest suites
+   (suggesting a real leak worth fixing in application code) or
+   spikes only at worker BGE-M3 startup and then plateaus (suggesting
+   the fix should target model-load duplication rather than an
+   application leak). The verdict and the targeted fix are recorded
+   in a follow-up to this addendum once the next run is pasted back.
+
+**Round 2 (next commit, after the next CI run) — targeted fix,
+informed by the trajectory.** The two leading candidates are:
+
+* **CI-only `torch.float16` model load** — halves each worker's
+  BGE-M3 in-RAM footprint (~2 GB ? ~1 GB per worker, ~4 GB ? ~2 GB
+  total) via an env-var-gated `dtype` passed to
+  `SentenceTransformer(...)` in `BGEM3Agent.initialize()`. The
+  env-var is set only in the CI `docker compose` invocation; local
+  dev and production behavior is unchanged. The load test measures
+  throughput, not BGE-M3 numerical accuracy, so this is the
+  lowest-risk precision reduction. This does **not** change the
+  "exactly 2 workers" architecture or the audit's dequeue-race
+  guarantees.
+* **Real application leak** — if the trajectory shows a steady
+  memory climb across the heavy pytest suites unrelated to the
+  BGE-M3 startup, the source is in `src/agent_platform/` (likely
+  accumulated test data in Postgres / Redis, or unclosed async
+  resources in a fixture) and is fixed in application code, not as a
+  CI workaround.
+
+**What is explicitly NOT changed in this round:**
+
+* No change to `_wait_for_api_healthy` — the retry-loop fix is
+  already confirmed working (it retried and reported the failure
+  correctly, exactly as designed; the next run's failure-after-full-
+  retry-window is what proved this is a sustained outage, not a
+  transient blip).
+* No `runs-on` change (the larger-runner entitlement does not exist
+  for this repo).
+* No `mem_limit` change on `api` (the constraint is total host
+  memory, not that container's cap).
+* No reduction of worker count from 2 to 1.
+* No new feature, no mock, no weakened assertion. The load test still
+  runs 10000 tasks at concurrency 500 against the real running
+  stack.
+
+### Why the retry fix does not hide a real crash
+
+The 60 s window is bounded: a permanently-down container still fails
+within a minute with a useful `RuntimeError` (now including the last
+health-check error). The diagnostic step runs *before* the load test,
+so even if the retry masks a blip successfully, the container state is
+captured in the log either way. If the API is genuinely down for the
+full 60 s, the diagnostic step's `docker compose ps` / `docker logs`
+output will show the cause (crash, OOM, port conflict, etc.), and the
+failure is then diagnosed and fixed by its actual root cause — not
+hidden behind a longer sleep.
+
+### Files changed
+
+* `scripts/chaos_load_test.py` — new `_wait_for_api_healthy()` helper;
+  replaced single-attempt health check in `run_load()` with one call
+  to it.
+* `.github/workflows/ci.yml` — `Capture container state before load
+  test` step (with `if: always()`) immediately before `Real load
+  test`, plus six new `Memory snapshot after <step>` steps (with
+  `if: always()`) inserted after each heavy pytest suite and after
+  `Real load test`, producing a memory-and-state trajectory through
+  the run.
+* `docker-compose.yml` — `pg_isready` healthcheck argument
+  `agent` ? `agent_platform` to suppress the harmless
+  `FATAL: database "agent" does not exist` log noise.
+* `ENGINEERING_AUDIT.md` — this addendum.
+
+---
+
+## Addendum 9 — Host-level OOM fix: CI-only float16 BGE-M3 + healthcheck cleanup
+
+### Confirmed root cause (re-stated from Addendum 8 evidence)
+
+From the CI run's "Capture container state before load test" step:
+
+```
+docker inspect agent_platform_api .State:
+"Status":"exited","Running":false,"OOMKilled":false,"ExitCode":137,
+"StartedAt":"2026-09-04T09:43:08.35Z","FinishedAt":"2026-09-04T09:43:31.94Z"
+```
+
+- `api` ran for **23 seconds** before being killed with **SIGKILL** (exit 137).
+- `OOMKilled: false` rules out the **container's own cgroup memory limit** (2 GB)
+  as the trigger — it does **not** rule out a **host-level** (whole-runner)
+  OOM kill, which the Linux kernel's global OOM-killer can deliver to any
+  process without reflecting it in that container's per-cgroup `OOMKilled` field.
+- The `api` log showed no Python traceback or error before going silent —
+  consistent with an external kill, not an application crash.
+- `docker compose ps` at the diagnostic checkpoint listed only `postgres` and
+  `redis` as running; `api` / `worker-1` / `worker-2` were gone entirely. The
+  compose `restart: unless-stopped` policy meant once they exited, they did not
+  restart — a hard, unrecovered failure of all three app containers.
+
+### Why a larger runner was investigated and rejected
+
+GitHub-hosted larger runners (`ubuntu-latest-4-core`, `-8-core`, `-16-core`)
+are an **organization/enterprise paid entitlement**. This is a
+user-owned personal repo (`alrezesi/AI-Agent-Platform`), so the entitlement
+does not exist and no runner-size change is available without a billing change
+at the org level. This was verified and documented; moving to option 2.
+
+### Why reducing worker count to 1 was rejected
+
+The audit's "exactly 2 workers" invariant (established in Addendum 1 and relied
+on by the `asyncio.Barrier(2)` dequeue-lost-update regression tests) cannot be
+relaxed. Each worker must load its own independent BGE-M3 instance to preserve
+worker-isolation guarantees.
+
+### Applied fix: CI-only `torch.float16` model load
+
+Both `worker-1` and `worker-2` independently load the full BGE-M3 model (~2 GB
+in fp32 each, ~4 GB total). The fix halves each worker's in-RAM footprint by
+loading in `float16` (~1 GB per worker, ~2 GB total) — a savings of **~2 GB** of
+peak host memory, enough to stay within the ~7 GB `ubuntu-latest` runner ceiling
+when combined with postgres (512 MB), redis (256 MB), api (capped 2 GB), and the
+cumulative working set of the prior pytest suites.
+
+The change is **gated by an environment variable** (`BGE_MODEL_DTYPE`) that
+defaults to `float32` (current behavior). It is set to `float16` **only** in the
+CI `Start stack` step. Local development and production are completely
+unchanged. The load test measures throughput, not BGE-M3 numerical accuracy,
+so this is the lowest-risk precision reduction. The "exactly 2 workers"
+architecture and all dequeue-race guarantees are preserved — only the weight
+dtype changes.
+
+**What is NOT changed:**
+- No change to `mem_limit` on any container (the constraint is total host
+  memory, not any one container's cap).
+- No change to worker count (still exactly 2).
+- No new feature, no mock, no weakened assertion. The load test still runs
+  10000 tasks at concurrency 500 against the real running stack.
+- No change to `_wait_for_api_healthy` (already confirmed working from
+  Addendum 8 — its 60 s retry window was what proved the api was genuinely
+  down, not a transient blip).
+
+### Files changed
+
+1. **`src/agents/bge_m3_agent.py`** — `initialize()` now reads
+   `BGE_MODEL_DTYPE` (default `"float32"`) and, when it is not `float32`,
+   passes `model_kwargs={"torch_dtype": <torch.dtype>}` to
+   `SentenceTransformer(...)`. The dtype string-to-`torch.dtype` resolution is
+   deferred inside `initialize()` (via `getattr(torch, name)`) so that
+   importing the module still does not require torch at import time, preserving
+   the original lazy-loading pattern. A log line (`Loading BGE-M3 in float16
+   precision`) is emitted so the CI logs confirm the dtype actually took effect.
+
+2. **`docker-compose.yml`** — added `BGE_MODEL_DTYPE: ${BGE_MODEL_DTYPE:-float32}`
+   to both the `x-worker-common` anchor's `environment:` block and the
+   individual `worker-1` / `worker-2` `environment:` blocks (the YAML merge
+   syntax causes worker service-level `environment:` to fully override the
+   anchor's, so it must be present in each). Docker Compose interpolation means
+   local dev defaults to `float32`; setting `BGE_MODEL_DTYPE=float16` in the
+   CI shell before `docker compose up` propagates `float16` into both containers.
+   Also fixed the postgres healthcheck: `pg_isready -U agent` ?
+   `pg_isready -U agent -d agent_platform` (Part 2).
+
+3. **`docker-compose.chaos.yml`** — same two changes applied for consistency:
+   `BGE_MODEL_DTYPE: ${BGE_MODEL_DTYPE:-float32}` on both workers and the
+   `x-worker-common` anchor, and the postgres healthcheck argument fixed.
+
+4. **`.github/workflows/ci.yml`** — `Start stack` step now sets
+   `BGE_MODEL_DTYPE: float16` in the step's `env:` block so the compose
+   interpolation picks it up. Also fixed the GitHub Actions service-container
+   postgres health check: `--health-cmd="pg_isready -U agent"` ?
+   `--health-cmd="pg_isready -U agent -d agent_platform"`.
+
+### Verification
+
+Pending — the commits are pushed; the real CI log from the next run will
+confirm:
+- The postgres log no longer shows repeated `database "agent" does not exist`
+  messages (Part 2 healthcheck fix).
+- The `BGE-M3 agent initialized` log line is preceded by
+  `Loading BGE-M3 in float16 precision` (confirming the dtype took effect in CI).
+- The "Capture container state before load test" step shows `api` / `worker-1` /
+  `worker-2` all still `Up` / healthy right before "Real load test" runs.
+- "Real load test" and "Coverage gate" both succeed.
+

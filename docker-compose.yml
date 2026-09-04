@@ -20,6 +20,7 @@ x-worker-common: &worker-common
     TORCH_NUM_THREADS: "1"
     TORCH_NUM_INTEROP_THREADS: "1"
     BGE_MAX_SEQ_LENGTH: "512"
+    BGE_MODEL_DTYPE: ${BGE_MODEL_DTYPE:-float32}
   volumes:
     - ./models:/app/models:ro
   depends_on:
@@ -47,7 +48,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U agent"]
+      test: ["CMD-SHELL", "pg_isready -U agent -d agent_platform"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -134,6 +135,7 @@ services:
       WORKER_ID: worker-1
       WORKER_PORT: "8001"
       BGE_MAX_SEQ_LENGTH: "512"
+      BGE_MODEL_DTYPE: ${BGE_MODEL_DTYPE:-float32}
 
   worker-2:
     <<: *worker-common
@@ -159,6 +161,7 @@ services:
       WORKER_ID: worker-2
       WORKER_PORT: "8002"
       BGE_MAX_SEQ_LENGTH: "512"
+      BGE_MODEL_DTYPE: ${BGE_MODEL_DTYPE:-float32}
 
 volumes:
   postgres_data:
