@@ -362,7 +362,14 @@ jobs:
           docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}' api worker-1 worker-2 2>&1 || true
 
       - name: Real load test
-        run: python scripts/chaos_load_test.py --tasks 10000 --concurrency 500 --output load_test_results.json
+        run: |
+          # Brief settle to let kernel page cache stabilize after the heavy
+          # pytest suites. The capture-before-load-test step confirmed all
+          # containers are running; this just avoids a same-second race where
+          # the kernel might be rebalancing memory right at the moment the
+          # load test opens 500 concurrent connections.
+          sleep 5
+          python scripts/chaos_load_test.py --tasks 10000 --concurrency 500 --output load_test_results.json
         env:
           REDIS_URL: redis://localhost:18379/1
 
