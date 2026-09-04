@@ -1,6 +1,11 @@
 x-worker-common: &worker-common
   build: .
   shm_size: '256m'
+  # Positive oom_score_adj makes workers the preferred OOM-kill target.
+  # In CI, if host memory is exhausted, workers (which hold the ~1.5GB BGE-M3
+  # model each) should be killed first. They restart automatically via
+  # restart: unless-stopped, and the api (with oom_score_adj: -500) stays up.
+  oom_score_adj: 500
   command: ["python", "scripts/run_worker.py"]
   environment:
     TASK_QUEUE_BACKEND: redis
@@ -79,6 +84,12 @@ services:
     build: .
     container_name: agent_platform_api
     shm_size: '256m'
+    # Negative oom_score_adj makes the kernel OOM-killer prefer to kill other
+    # processes (workers, redis) before the api. This is critical in CI where
+    # the host runner has limited memory: if total memory is exhausted, we
+    # want the api to stay up so the load test can proceed (with fewer
+    # workers), rather than the api dying and the load test failing.
+    oom_score_adj: -500
     command: >
       sh -c "alembic upgrade head &&
              uvicorn src.agent_platform.api.main:app --host 0.0.0.0 --port 8000"
