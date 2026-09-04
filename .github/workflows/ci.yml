@@ -66,6 +66,17 @@ jobs:
       - name: Type check
         run: mypy src scripts
 
+      - name: Run database migrations
+        # Migrate the real ``agent_platform`` database (pointed to by the
+        # job-level ``DATABASE_URL``). The isolated test DB at
+        # ``POSTGRES_URL`` is migrated by ``tests/conftest.py``'s
+        # ``_run_migrations_subprocess`` per fixture; the live app's
+        # database was previously never migrated in CI, so any test that
+        # booted a real ``FastAPI`` app instance (e.g.
+        # ``test_no_secrets_in_api_request_logs``) hit an empty schema
+        # and failed with ``relation "tasks" does not exist``.
+        run: alembic -c alembic.ini upgrade head
+
       - name: Unit tests
         run: pytest tests/unit -m "not integration and not e2e and not chaos" --junitxml=reports/unit.xml --cov=src/agent_platform --cov-report=xml --cov-report=term-missing
 

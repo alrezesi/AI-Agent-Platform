@@ -1337,3 +1337,91 @@ change to the compose Redis port mapping is centralized. Forgetting
 to coordinate the host port between CI's service Redis and compose's
 Redis is no longer possible — the single env var drives both sides.
 
+---
+
+## Addendum 7 — CI failure: `agent_platform` (DATABASE_URL) database was never migrated in CI
+
+### What happened
+
+After the Redis port fix (Addendum 6) the pipeline progressed far enough
+to reach the `Security tests` step in CI. The first test that boots a
+**real** `FastAPI` app instance via `TestClient` against the live
+wiring (`tests/security/test_security_audit.py::test_no_secrets_in_api_request_logs`)
+failed with:
+
+```
+sqlalchemy.exc.ProgrammingError: relation "tasks" does not exist
+[SQL: SELECT ... FROM tasks WHERE tasks.task_id = $1::VARCHAR]
+```
+
+### Root cause
+
+Two different Postgres databases coexist in CI:
+
+* `agent_platform` — the real runtime database, the engine for which is
+  built from the job-level `DATABASE_URL`
+  (`postgresql://agent:agent123@localhost:5432/agent_platform`). This
+  is the database the actual FastAPI app, scheduler, and workers talk
+  to.
+* `agent_platform_test` — the isolated test database, already
+  configured and migrated by
+  `tests/conftest.py::_run_migrations_subprocess()` per `pg_engine`
+  fixture (the subject of Addenda 3 and 4). This is correct and
+  intentional and was **not** touched.
+
+The CI workflow had a migration step only **inside** the test fixtures
+(`_run_migrations_subprocess`), which runs against `POSTGRES_URL` /
+`agent_platform_test`. The real `agent_platform` database created by the
+Postgres service container's `POSTGRES_DB` was **never migrated** in
+CI — it had an empty schema. Every test that uses the isolated
+`pg_engine`/`clean_db` fixtures was unaffected; the first test to spin
+up a real `TestClient` of the app (which reads the real `DATABASE_URL`)
+hit the empty schema and failed with `UndefinedTableError` for
+`relation "tasks" does not exist`.
+
+### Fix
+
+Added a single, job-level migration step to
+`.github/workflows/ci.yml`, placed after `Type check` and before
+`Unit tests` so every downstream test (unit, integration, security,
+e2e) sees a fully-migrated real database:
+
+```yaml
+- name: Run database migrations
+  run: alembic -c alembic.ini upgrade head
+```
+
+Notes:
+
+* `DATABASE_URL` is already in the job-level `env:` block (line 39),
+  and `alembic.ini`/`migrations/env.py` are configured to read it. The
+  step needs no `env:` override, so there is exactly **one** source of
+  truth for the real database URL — no hardcoded second value to
+  drift.
+* The job-level `DATABASE_URL` is already a plain
+  `postgresql://...` URL (no `+asyncpg` driver prefix), exactly the
+  sync-style format `migrations/env.py` expects. The
+  `+asyncpg` ? `postgresql://` transformation already applied in
+  `_run_migrations_subprocess` is therefore not needed here.
+* No change to the already-correct `agent_platform_test` migration
+  path in `tests/conftest.py`. The isolated test database continues
+  to be migrated per-fixture, exactly as before.
+* No new feature, no mocked database, no weakened assertion. The real
+  Postgres schema is created by the real `alembic upgrade head`
+  against the real `agent_platform` database, exactly as the live
+  app expects.
+
+### Verification
+
+Pending — the commit is pushed; the real CI log will confirm
+`test_no_secrets_in_api_request_logs` now passes and that the 65/65
+security tests and the rest of the pipeline are unaffected. The
+push auto-triggers CI per the existing `on: push` configuration.
+
+### Files changed
+
+* `.github/workflows/ci.yml` — one new step (`Run database migrations`,
+  `alembic -c alembic.ini upgrade head`) inserted between `Type check`
+  and `Unit tests`.
+* `ENGINEERING_AUDIT.md` — this addendum.
+
