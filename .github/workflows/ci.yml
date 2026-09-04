@@ -364,12 +364,11 @@ jobs:
 
       - name: Real load test
         run: |
-          # Brief settle to let kernel page cache stabilize after the heavy
-          # pytest suites. The capture-before-load-test step confirmed all
-          # containers are running; this just avoids a same-second race where
-          # the kernel might be rebalancing memory right at the moment the
-          # load test opens 500 concurrent connections.
-          sleep 5
+          # Settle period: after all heavy pytest suites, the kernel page cache
+          # and cgroup accounting need a moment to stabilize. 15s gives the
+          # kernel time to reclaim any transient allocations from the previous
+          # step's teardown before we open 500 concurrent connections.
+          sleep 15
           python scripts/chaos_load_test.py --tasks 10000 --concurrency 500 --output load_test_results.json
         env:
           REDIS_URL: redis://localhost:18379/1
