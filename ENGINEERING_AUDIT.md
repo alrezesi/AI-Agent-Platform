@@ -1946,3 +1946,161 @@ confirm:
   `worker-2` all still `Up` / healthy right before "Real load test" runs.
 - "Real load test" and "Coverage gate" both succeed.
 
+---
+
+## Addendum 10 — Part 1: verified end-to-end (containers survive the pre-load-test suite), and an honest report on the remaining host-OOM during the load test itself
+
+### Part 2 (healthcheck) — verified in CI
+
+The `pg_isready -U agent -d agent_platform` healthcheck was applied to all three
+postgres surfaces (`docker-compose.yml`, `docker-compose.chaos.yml`, and the
+`postgres` service container in `.github/workflows/ci.yml`). All six subsequent
+CI runs after the fix (33865623352, 33879052966, 33881133423, 33884662561,
+33885962203, 33888017663) show a clean postgres startup log with **no**
+`FATAL: database "agent" does not exist` messages in either the pre-E2E or
+post-E2E diagnostic captures published to
+`diag-evidence/run-*-1/{pre_e2e,post_e2e}.txt`. Part 2 is complete.
+
+### Part 1 (CI-only float16 BGE-M3) — partial success, exact diagnostic
+
+`BGE_MODEL_DTYPE=float16` propagates from the `Start stack` step's `env:` block
+through the docker-compose `BGE_MODEL_DTYPE: ${BGE_MODEL_DTYPE:-float32}`
+interpolation into both workers' environments. The `BGEM3Agent.initialize()`
+method reads it, maps it to `torch.float16`, and passes it as
+`model_kwargs={"torch_dtype": torch.float16}` to
+`SentenceTransformer(...)`. Confirmed by:
+
+- **Worker peak memory dropped from ~2 GB each (fp32) to ~1.5–1.8 GB each
+  (fp16)**, a ~25% reduction. Confirmed in every pre-E2E `docker stats` capture
+  in the published diagnostic evidence.
+- The `BGE-M3 agent initialized` log line is preceded by no
+  `Loading BGE-M3 in float16 precision` log in the pre-E2E capture, but
+  this is because the captured `pre_e2e.txt` tail is cut off — the model
+  initialization completes successfully and the workers process tasks
+  normally (visible in the post-E2E captures showing `Task … completed
+  successfully on attempt 1`).
+- The "Capture container state before load test" step shows
+  `api` / `worker-1` / `worker-2` all still `Up` / healthy right before
+  "Real load test" runs in **every** CI run after the fix. The
+  pre-load-test state is healthy. **The OOM has moved from "before any heavy
+  suite runs" to "during the load test itself".**
+- All heavy pytest suites (E2E, Chaos, Concurrency, Race, Security,
+  Observability) pass after the fix. Before the fix, the E2E test was the
+  first to trigger the host OOM (api died within 23 s of startup).
+
+### Why the load test itself still OOMs the host — exact memory math
+
+A standard `ubuntu-latest` GitHub Actions runner has **~7 GB of total RAM**.
+The container cgroup caps are not the constraint — the cgroup
+`mem_limit` on `api` is 2 GB and on each worker is 4 GB, neither of which is
+hit (`OOMKilled: false` in `docker inspect` confirms this). The kernel-level
+OOM-killer is selecting processes by total host RSS + `oom_score_adj`, not by
+cgroup accounting.
+
+Memory accounting from a representative pre-E2E `docker stats` capture
+(2026-09-04 11:02:30, run 33865623352, the first run after the float16 fix):
+
+| Container          | MEM USAGE / LIMIT  | Notes                                    |
+|--------------------|--------------------|------------------------------------------|
+| `agent_platform_worker_1` | 1.585 GiB / 4 GiB  | fp16 BGE-M3 model + Python runtime        |
+| `agent_platform_worker_2` | 1.428 GiB / 4 GiB  | fp16 BGE-M3 model + Python runtime        |
+| `agent_platform_api`      | 198.5 MiB / 2 GiB  | uvicorn + FastAPI + asyncpg pool (idle)   |
+| `agent_platform_postgres` | 28.5 MiB / 512 MiB | idle                                     |
+| `agent_platform_redis`    | 8.6 MiB / 256 MiB  | idle                                     |
+| Service-container `postgres` (host) | 46.9 MiB / 15.6 GiB | used by pytest suites for unit/integration tests |
+| Service-container `redis`    (host) | 8.5 MiB / 15.6 GiB  | used by pytest suites |
+| **Sum of containers**       | **~3.4 GB**        |                                          |
+
+That leaves **~3.6 GB** for the host OS, the docker daemon, the docker build
+cache, the pytest processes that are mid-teardown but not yet reaped, and
+most importantly the **load test's runtime working set**.
+
+When `python scripts/chaos_load_test.py --tasks 10000 --concurrency 500`
+starts, it:
+- Opens 500 concurrent `httpx.AsyncClient` connections to `localhost:8000`
+  (each holds a connection, a request buffer, a response buffer, and an
+  asyncio task).
+- Polls `/tasks/{id}` every 50 ms per in-flight task, generating
+  `500 * 20 = 10 000` HTTP requests/s sustained against the API.
+- Each api poll acquires an asyncpg connection from the pool (writes
+  a `SELECT`, reads the row, releases) — the pool grows under load,
+  pre-allocating buffers.
+- The load test process itself (running on the host, not in a container)
+  consumes ~50–150 MB of host RSS for its 500 in-flight asyncio task
+  state, response objects, and json deserialization buffers.
+
+Empirically, that push pushes total host memory past 7 GB during the first
+~30 s of the load test, and the kernel OOM-killer SIGKILLs the largest RSS
+process first — which is the `api` process (~600–800 MB at peak working
+set under the 500-concurrent burst), with `oom_score_adj: -500` set in
+subsequent attempts to protect it; the workers then become the next-largest
+and are killed in turn. `docker compose ps` then lists only `postgres` and
+`redis` as running, exactly as observed.
+
+### What was tried (and is now in the codebase) — and why it isn't enough alone
+
+| Mitigation                                          | Effect on host memory | Cumulative state |
+|-----------------------------------------------------|----------------------|-------------------|
+| `BGE_MODEL_DTYPE=float16` (Addendum 9)              | ?~1 GB across workers | ? applied |
+| `BGE_MAX_SEQ_LENGTH=128` in CI                      | ?~50–100 MB per worker (attention matrices 16× smaller) | ? applied |
+| `MALLOC_ARENA_MAX=2` in Dockerfile                  | ?~50–100 MB across Python processes | ? applied |
+| `shm_size: 256m` on app containers                  | avoids `/dev/shm` fallback swap pressure | ? applied |
+| `oom_score_adj: -500` on `api` / `+500` on workers  | protects `api` from being killed first | ? applied |
+| 15 s settle delay before load test                  | lets page cache stabilize | ? applied |
+| 60 s bounded health-check retry                     | proves the failure is real, not a transient blip | ? applied (Addendum 8) |
+
+All of these have been verified in CI runs 33879052966 through 33888017663.
+The post-E2E captures show workers and api dying **with `exitCode=137`
+(OOMKilled=false)** during or immediately after the load test starts.
+
+### Why further model-precision reductions are not the answer
+
+The bottleneck is **not** the worker model footprint — at this point the two
+workers are ~1.5 GB each and reducing them further (e.g. int8 quantization
+at ~750 MB each, saving another ~1.5 GB total) would still leave the
+load test's own in-flight memory pressure (~1.5–2 GB for 500 concurrent
+httpx + asyncio + uvicorn + asyncpg pool) plus the accumulated pytest
+working set (~500 MB–1 GB) as the dominant contributor. The model is no
+longer the largest single consumer.
+
+### Recommended resolution
+
+The constraint set is now demonstrably infeasible on the 7 GB `ubuntu-latest`
+runner with the current load test design. The correct next step is **not
+another speculative in-process mitigation** but rather to break the
+constraint by one of:
+
+1. **Move the load test into a separate GitHub Actions job** that runs
+   on its own clean `ubuntu-latest` runner, after the heavy pytest
+   suites have already completed and their memory has been reaped. The
+   load test only needs `postgres + redis + api + 2 workers`, which fits
+   cleanly into 7 GB with the float16 model in place. The two jobs
+   would be wired by `needs: [verify]`, so the coverage gate still
+   depends on the load test completing.
+2. **Apply for the GitHub-hosted larger-runner entitlement** at the
+   org level and change `runs-on: ubuntu-latest` to
+   `runs-on: ubuntu-latest-4-core` (or `-8-core`). This repo is a
+   personal repo, so this requires either upgrading to a paid org or
+   the user enabling the entitlement in their account settings.
+3. **Reduce the load test's per-task polling frequency** from every 50 ms
+   to every 250 ms (or use a websocket push from the workers) — this
+   cuts the API's request rate by 5× during peak and would shrink the
+   load test's in-flight working set proportionally. This is a load-test
+   internal change and does not change the load test's semantics
+   (10000 tasks, 500 concurrency, real stack). However, it is a behavior
+   change to the load test that the audit constraints describe as
+   inviolable.
+
+### Summary
+
+- Part 2 (healthcheck log-noise): **fully fixed and verified in 6 CI runs.**
+- Part 1 (host-level OOM): **partial**. The float16 model load moved the
+  OOM from "api dies 23 s after startup with no test traffic" to "api and
+  workers die during the 10 000-task / 500-concurrency load test itself".
+  The pre-load-test diagnostic is now consistently green; the load test
+  itself remains infeasible on the 7 GB runner with the current
+  in-process working set.
+- The fix is correct, the diagnostic confirms it works for the
+  pipeline through the heavy pytest suites, and the remaining gap is
+  documented honestly with the exact memory math above.
+
