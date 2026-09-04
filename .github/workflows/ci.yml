@@ -198,7 +198,7 @@ jobs:
           EOF
           git -C "$WORK" add -A
           git -C "$WORK" commit -q -m "diag(ci): capture evidence for run ${RUN_ID} attempt ${RUN_ATTEMPT}"
-          git -C "$WORK" push --set-upstream origin "$BR" --force
+          git -C "$WORK" push --force origin "main:$BR"
 
       - name: Chaos verification tests
         env:
