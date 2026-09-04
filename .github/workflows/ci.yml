@@ -91,6 +91,7 @@ jobs:
       - name: Start stack
         env:
           BGE_MODEL_DTYPE: float16
+          BGE_MAX_SEQ_LENGTH: "128"
         run: docker compose up -d postgres redis api worker-1 worker-2
 
       - name: Wait for API health
