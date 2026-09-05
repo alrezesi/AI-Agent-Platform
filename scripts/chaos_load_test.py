@@ -217,7 +217,7 @@ async def run_load(total_tasks: int, concurrency: int) -> LoadMetrics:
         await _wait_for_api_healthy(client)
 
         headers = await _get_auth_headers(client)
-        redis = Redis.from_url(REDIS_URL, decode_responses=True)
+        redis = Redis.from_url(REDIS_URL, decode_responses=True, max_connections=2000)
 
         async def worker(index: int) -> None:
             nonlocal retries, errors

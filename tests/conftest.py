@@ -208,7 +208,7 @@ def docker_ready():
     import redis.asyncio
 
     try:
-        r = redis.asyncio.Redis.from_url(REDIS_URL)
+        r = redis.asyncio.Redis.from_url(REDIS_URL, max_connections=2000)
         asyncio.get_event_loop().run_until_complete(r.ping())
         asyncio.get_event_loop().run_until_complete(r.aclose())
     except Exception:
@@ -289,7 +289,7 @@ async def redis_client():
     """Provide a real Redis client, flushed before and after each test."""
     import redis.asyncio
 
-    r = redis.asyncio.Redis.from_url(REDIS_URL)
+    r = redis.asyncio.Redis.from_url(REDIS_URL, max_connections=2000)
     await r.flushdb()
     yield r
     await r.flushdb()

@@ -118,7 +118,7 @@ async def main() -> None:
     logger.info("Starting worker %s", worker_id)
     logger.info("Redis URL: %s", redis_url)
 
-    redis = Redis.from_url(redis_url, decode_responses=False)
+    redis = Redis.from_url(redis_url, decode_responses=False, max_connections=2000)
 
     try:
         await redis.ping()

@@ -21,7 +21,7 @@ class SimpleTaskAgent(BaseAgent):
         redis_url = os.getenv("EXECUTION_COUNTER_REDIS_URL")
         execution_count = None
         if redis_url:
-            redis = Redis.from_url(redis_url, decode_responses=True)
+            redis = Redis.from_url(redis_url, decode_responses=True, max_connections=2000)
             try:
                 execution_count = await redis.incr(f"executions:{task.task_id}")
             finally:

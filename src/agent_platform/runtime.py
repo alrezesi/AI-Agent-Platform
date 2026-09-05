@@ -60,7 +60,7 @@ _configure_cpu_runtime()
 @lru_cache(maxsize=1)
 def get_redis_client() -> Redis:
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-    return Redis.from_url(redis_url)
+    return Redis.from_url(redis_url, max_connections=2000)
 
 
 @lru_cache(maxsize=1)
