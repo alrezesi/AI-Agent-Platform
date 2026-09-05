@@ -1,0 +1,88 @@
+=========== POST-E2E docker compose ps ===========
+NAME                      IMAGE                COMMAND                  SERVICE    CREATED          STATUS                    PORTS
+agent_platform_postgres   postgres:16-alpine   "docker-entrypoint.s…"   postgres   55 seconds ago   Up 55 seconds (healthy)   0.0.0.0:5433->5432/tcp, [::]:5433->5432/tcp
+agent_platform_redis      redis:7-alpine       "docker-entrypoint.s…"   redis      55 seconds ago   Up 55 seconds (healthy)   0.0.0.0:18379->6379/tcp, [::]:18379->6379/tcp
+
+=========== POST-E2E docker compose logs worker-1 worker-2 api --tail=300 ===========
+agent_platform_worker_1  | 2026-09-05 19:02:53,005 | INFO | __main__ | Starting worker worker-1
+agent_platform_worker_1  | 2026-09-05 19:02:53,005 | INFO | __main__ | Redis URL: redis://redis:6379/1
+agent_platform_worker_1  | 2026-09-05 19:02:53,094 | INFO | __main__ | Redis connection established
+agent_platform_worker_1  | 2026-09-05 19:02:53,164 | INFO | __main__ | Using local BGE-M3 model: /app/models/bge-m3
+agent_platform_worker_1  | 2026-09-05 19:02:53,165 | INFO | __main__ | Initializing agent bge-m3...
+agent_platform_worker_1  | 2026-09-05 19:02:53,165 | INFO | src.agents.bge_m3_agent | Using local BGE-M3 model: /app/models/bge-m3
+agent_platform_worker_1  | 2026-09-05 19:02:58,996 | INFO | sentence_transformers.base.model | Loading SentenceTransformer model from /app/models/bge-m3.
+agent_platform_worker_1  | Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]Loading weights: 100%|██████████| 391/391 [00:00<00:00, 20900.43it/s]
+agent_platform_worker_1  | 2026-09-05 19:03:01,556 | INFO | src.agents.bge_m3_agent | BGE-M3 agent initialized
+agent_platform_worker_1  | 2026-09-05 19:03:01,556 | INFO | __main__ | Agent bge-m3 initialized successfully
+agent_platform_worker_1  | 2026-09-05 19:03:01,557 | INFO | __main__ | Registered agent: bge-m3 (BGE-M3)
+agent_platform_worker_1  | 2026-09-05 19:03:01,557 | INFO | src.agent_platform.distributed.node | Node worker-1 started on bc7869bc0a58:8001
+agent_platform_worker_1  | 2026-09-05 19:03:01,558 | INFO | src.agent_platform.distributed.worker | Worker node worker-1 started with 1 concurrent tasks
+agent_platform_worker_1  | 2026-09-05 19:03:01,661 | INFO | __main__ | Worker worker-1 is running and waiting for tasks...
+agent_platform_api       | INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+agent_platform_api       | INFO  [alembic.runtime.migration] Will assume transactional DDL.
+agent_platform_api       | INFO:     Started server process [11]
+agent_platform_api       | INFO:     Waiting for application startup.
+agent_platform_api       | INFO:     Application startup complete.
+agent_platform_api       | INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+agent_platform_worker_2  | 2026-09-05 19:02:52,900 | INFO | __main__ | Starting worker worker-2
+agent_platform_worker_1  | 2026-09-05 19:03:01,679 | INFO | src.agent_platform.distributed.worker | Worker worker-1 executing task docker-e2e-1788634978134
+agent_platform_worker_2  | 2026-09-05 19:02:52,901 | INFO | __main__ | Redis URL: redis://redis:6379/1
+agent_platform_worker_1  | 2026-09-05 19:03:02,038 | INFO | src.agent_platform.scheduler.worker | Task docker-e2e-1788634978134 completed successfully on attempt 1
+agent_platform_worker_2  | 2026-09-05 19:02:52,951 | INFO | __main__ | Redis connection established
+agent_platform_worker_1  | 2026-09-05 19:03:02,054 | INFO | src.agent_platform.distributed.worker | Worker worker-1 completed task docker-e2e-1788634978134 with status completed
+agent_platform_worker_2  | 2026-09-05 19:02:53,013 | INFO | __main__ | Using local BGE-M3 model: /app/models/bge-m3
+agent_platform_api       | INFO:     172.19.0.1:51512 - "GET /health HTTP/1.1" 200 OK
+agent_platform_api       | INFO:     172.19.0.1:51512 - "POST /tenants/ HTTP/1.1" 200 OK
+agent_platform_api       | INFO:     172.19.0.1:51512 - "POST /tenants/tenant-47ceb165/api-keys HTTP/1.1" 200 OK
+agent_platform_api       | INFO:     172.19.0.1:51512 - "POST /tasks/ HTTP/1.1" 200 OK
+agent_platform_api       | INFO:     172.19.0.1:51512 - "GET /tasks/docker-e2e-1788634978134 HTTP/1.1" 200 OK
+agent_platform_api       | INFO:     172.19.0.1:51512 - "GET /tasks/docker-e2e-1788634978134 HTTP/1.1" 200 OK
+agent_platform_api       | INFO:     172.19.0.1:51512 - "GET /tasks/docker-e2e-1788634978134 HTTP/1.1" 200 OK
+agent_platform_api       | INFO:     172.19.0.1:51512 - "GET /tasks/docker-e2e-1788634978134 HTTP/1.1" 200 OK
+agent_platform_api       | INFO:     172.19.0.1:51512 - "GET /tasks/docker-e2e-1788634978134 HTTP/1.1" 200 OK
+agent_platform_api       | INFO:     172.19.0.1:51524 - "GET /health HTTP/1.1" 200 OK
+agent_platform_api       | INFO:     172.19.0.1:51524 - "POST /tenants/ HTTP/1.1" 200 OK
+agent_platform_api       | INFO:     172.19.0.1:51524 - "POST /tenants/tenant-18631498/api-keys HTTP/1.1" 200 OK
+agent_platform_api       | INFO:     172.19.0.1:51524 - "POST /tasks/ HTTP/1.1" 200 OK
+agent_platform_api       | INFO:     172.19.0.1:51524 - "GET /tasks/real-agent-1788634982877 HTTP/1.1" 200 OK
+agent_platform_api       | INFO:     172.19.0.1:51524 - "GET /tasks/real-agent-1788634982877 HTTP/1.1" 200 OK
+agent_platform_worker_2  | 2026-09-05 19:02:53,013 | INFO | __main__ | Initializing agent bge-m3...
+agent_platform_worker_2  | 2026-09-05 19:02:53,013 | INFO | src.agents.bge_m3_agent | Using local BGE-M3 model: /app/models/bge-m3
+agent_platform_worker_2  | 2026-09-05 19:02:59,312 | INFO | sentence_transformers.base.model | Loading SentenceTransformer model from /app/models/bge-m3.
+agent_platform_worker_2  | Loading weights:   0%|          | 0/391 [00:00<?, ?it/s]Loading weights: 100%|██████████| 391/391 [00:00<00:00, 22658.13it/s]
+agent_platform_worker_2  | 2026-09-05 19:03:01,798 | INFO | src.agents.bge_m3_agent | BGE-M3 agent initialized
+agent_platform_worker_2  | 2026-09-05 19:03:01,798 | INFO | __main__ | Agent bge-m3 initialized successfully
+agent_platform_worker_2  | 2026-09-05 19:03:01,799 | INFO | __main__ | Registered agent: bge-m3 (BGE-M3)
+agent_platform_worker_2  | 2026-09-05 19:03:01,799 | INFO | src.agent_platform.distributed.node | Node worker-2 started on 4169f899cad1:8002
+agent_platform_worker_2  | 2026-09-05 19:03:01,800 | INFO | src.agent_platform.distributed.worker | Worker node worker-2 started with 1 concurrent tasks
+agent_platform_worker_2  | 2026-09-05 19:03:01,892 | INFO | __main__ | Worker worker-2 is running and waiting for tasks...
+agent_platform_worker_2  | 2026-09-05 19:03:02,928 | INFO | src.agent_platform.distributed.worker | Worker worker-2 executing task real-agent-1788634982877
+agent_platform_worker_2  | 2026-09-05 19:03:03,196 | INFO | src.agent_platform.scheduler.worker | Task real-agent-1788634982877 completed successfully on attempt 1
+agent_platform_worker_2  | 2026-09-05 19:03:03,213 | INFO | src.agent_platform.distributed.worker | Worker worker-2 completed task real-agent-1788634982877 with status completed
+
+=========== POST-E2E docker stats --no-stream ===========
+NAME                                                       CPU %     MEM USAGE / LIMIT     MEM %
+agent_platform_postgres                                    3.09%     30.32MiB / 512MiB     5.92%
+agent_platform_redis                                       2.81%     9.578MiB / 256MiB     3.74%
+a8a23aac92a44d848c2d69d33ec93e05_redis7alpine_bc3494       0.35%     8.656MiB / 15.61GiB   0.05%
+b04039443c88423896985bca2fc7947d_postgres16alpine_912484   0.11%     46.26MiB / 15.61GiB   0.29%
+
+=========== POST-E2E docker inspect workers ===========
+--- agent_platform_worker_1 ---
+/agent_platform_worker_1 state=exited restartCount=0 oomKilled=false exitCode=137
+--- agent_platform_worker_2 ---
+/agent_platform_worker_2 state=exited restartCount=0 oomKilled=false exitCode=137
+--- agent_platform_api ---
+/agent_platform_api state=exited restartCount=0 oomKilled=false exitCode=137
+
+=========== POST-E2E Redis state ===========
+
+
+
+=========== POST-E2E Postgres tasks ===========
+         task_id          |  status   | version | retry_count | lease_owner |      lease_expires_at      |         started_at         |        completed_at        | error 
+--------------------------+-----------+---------+-------------+-------------+----------------------------+----------------------------+----------------------------+-------
+ real-agent-1788634982877 | completed |       2 |           0 | worker-2    | 2026-09-05 19:03:07.917453 | 2026-09-05 19:03:02.91693  | 2026-09-05 19:03:03.196936 | 
+ docker-e2e-1788634978134 | completed |       2 |           0 | worker-1    | 2026-09-05 19:03:06.669417 | 2026-09-05 19:03:01.668718 | 2026-09-05 19:03:02.038917 | 
+(2 rows)
+
