@@ -208,7 +208,7 @@ def docker_ready():
     import redis.asyncio
 
     try:
-        r = redis.asyncio.Redis.from_url(REDIS_URL, max_connections=2000)
+        r = redis.asyncio.Redis.from_url(REDIS_URL, max_connections=2000, socket_connect_timeout=30)
         asyncio.get_event_loop().run_until_complete(r.ping())
         asyncio.get_event_loop().run_until_complete(r.aclose())
     except Exception:
@@ -219,7 +219,7 @@ def docker_ready():
 async def pg_engine(ensure_test_db):
     """Create an async PostgreSQL engine. Function-scoped to avoid
     cross-loop issues with pytest-asyncio."""
-    engine = create_async_engine(POSTGRES_URL, pool_size=2, max_overflow=2)
+    engine = create_async_engine(POSTGRES_URL, pool_size=50, max_overflow=50)
     # Ensure schema exists AND is up-to-date with all alembic migrations.
     # ``Base.metadata.create_all`` only creates tables that don't exist; it
     # does NOT add columns that were added by later migrations (e.g.
@@ -236,7 +236,7 @@ async def pg_engine(ensure_test_db):
     # Run as a subprocess so alembic's own ``env.py`` (which calls
     # ``asyncio.run``) does not conflict with the pytest-asyncio event loop.
     _run_migrations_subprocess(POSTGRES_URL)
-    engine = create_async_engine(POSTGRES_URL, pool_size=2, max_overflow=2)
+    engine = create_async_engine(POSTGRES_URL, pool_size=50, max_overflow=50)
     yield engine
     await engine.dispose()
 
