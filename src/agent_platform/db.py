@@ -19,7 +19,13 @@ def _database_url() -> str:
 
 @lru_cache(maxsize=1)
 def get_engine():
-    return create_async_engine(_database_url(), pool_pre_ping=True)
+    return create_async_engine(
+        _database_url(),
+        pool_pre_ping=True,
+        pool_size=500,
+        max_overflow=500,
+        connect_args={"timeout": 180, "ssl": False},
+    )
 
 
 @lru_cache(maxsize=1)
