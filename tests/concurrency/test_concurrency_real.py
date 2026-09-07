@@ -110,13 +110,10 @@ async def test_1000_concurrent_submissions_all_present(redis_queue, clean_db):
     scheduler = TaskScheduler(redis_queue)
     task_ids = [f"real-1000-{i:04d}" for i in range(1000)]
 
-    semaphore = asyncio.Semaphore(50)
-
-    async def submit_limited(tid: str) -> str:
-        async with semaphore:
-            return await scheduler.submit_task("agent", "echo", {}, task_id=tid)
-
-    await asyncio.gather(*[submit_limited(tid) for tid in task_ids])
+    await asyncio.gather(*[
+        scheduler.submit_task("agent", "echo", {}, task_id=tid)
+        for tid in task_ids
+    ])
 
     zcard = await redis_queue.redis.zcard(redis_queue.QUEUE_KEY)
     assert zcard == 1000
@@ -134,13 +131,10 @@ async def test_1000_concurrent_submissions_unique_ids(redis_queue, clean_db):
     scheduler = TaskScheduler(redis_queue)
     task_ids = [f"real-1000-unique-{i:04d}" for i in range(1000)]
 
-    semaphore = asyncio.Semaphore(50)
-
-    async def submit_limited(tid: str) -> str:
-        async with semaphore:
-            return await scheduler.submit_task("agent", "echo", {}, task_id=tid)
-
-    results = await asyncio.gather(*[submit_limited(tid) for tid in task_ids])
+    results = await asyncio.gather(*[
+        scheduler.submit_task("agent", "echo", {}, task_id=tid)
+        for tid in task_ids
+    ])
 
     assert len(set(results)) == 1000
 
@@ -151,13 +145,10 @@ async def test_1000_concurrent_submissions_all_consumable(redis_queue, clean_db)
     scheduler = TaskScheduler(redis_queue)
     task_ids = [f"real-1000-consume-{i:04d}" for i in range(1000)]
 
-    semaphore = asyncio.Semaphore(50)
-
-    async def submit_limited(tid: str) -> str:
-        async with semaphore:
-            return await scheduler.submit_task("agent", "echo", {}, task_id=tid)
-
-    await asyncio.gather(*[submit_limited(tid) for tid in task_ids])
+    await asyncio.gather(*[
+        scheduler.submit_task("agent", "echo", {}, task_id=tid)
+        for tid in task_ids
+    ])
 
     consumed = 0
     while True:
