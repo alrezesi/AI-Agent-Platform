@@ -238,11 +238,14 @@ class RedisTaskQueue(BaseTaskQueue):
         return stats
 
     async def _find_existing_task(self, task_id: str) -> Task | None:
-        """Return the currently persisted task (DB first, then Redis) or None."""
-        # PostgreSQL is the source of truth.
-        task = await self._load_task_from_db(task_id)
-        if task is not None:
-            return task
+        """Return the currently persisted task from Redis or None.
+
+        ``get_task`` already performs the authoritative DB lookup (with
+        Redis-first fallback) before ``enqueue`` calls this method, so
+        here we only need to consult Redis.  If the task was created
+        between the two calls, ``check_and_lock`` (Redis SET NX) guards
+        against silent duplication.
+        """
         try:
             data = await self.redis.get(self._task_key(task_id))
             if data:
@@ -404,7 +407,85 @@ class RedisTaskQueue(BaseTaskQueue):
                         )
                         return None
                 else:
-                    expected_version = orm.version
+                    # Use the version from the task object we loaded from
+                    # Redis/DB, NOT the current DB row version.  This is
+                    # the critical fix for the lost-update race: if a
+                    # concurrent cancel() or update_task() already
+                    # committed and bumped the row's version, we must
+                    # detect that mismatch and skip the claim rather
+                    # than silently overwriting the winner.
+                    expected_version = task.version
+                    if orm.version != expected_version:
+                        await session.rollback()
+                        fresh = await session.get(TaskORM, task_id)
+                        logger.info(
+                            "dequeue: version conflict for %s "
+                            "(expected %s, actual %s); skipping",
+                            task_id,
+                            expected_version,
+                            getattr(fresh, "version", None),
+                        )
+                        if fresh is None:
+                            try:
+                                await self.redis.zrem(self.QUEUE_KEY, task_id)
+                                await self.redis.zrem(self.PROCESSING_KEY, task_id)
+                                await self.redis.delete(self._task_key(task_id))
+                                await self.redis.delete(self._meta_key(task_id))
+                            except Exception:
+                                logger.exception(
+                                    "dequeue: failed to evict deleted task %s "
+                                    "from Redis after version conflict",
+                                    task_id,
+                                )
+                            return None
+
+                        fresh_task = cast(Task, fresh.to_task())
+                        still_claimable = (
+                            fresh_task.status in (TaskStatus.PENDING, TaskStatus.SCHEDULED)
+                            and fresh_task.lease_owner is None
+                        )
+
+                        try:
+                            if still_claimable:
+                                await self.redis.set(
+                                    self._task_key(task_id),
+                                    fresh_task.model_dump_json(),
+                                    ex=self.ttl_seconds,
+                                )
+                                await self.redis.set(
+                                    self._meta_key(task_id),
+                                    json.dumps(
+                                        {"status": fresh_task.status.value, "agent_id": fresh_task.agent_id}
+                                    ),
+                                    ex=self.ttl_seconds,
+                                )
+                                await self.redis.zadd(
+                                    self.QUEUE_KEY,
+                                    {task_id: self._priority_score(fresh_task)},
+                                )
+                                await self.redis.zrem(self.PROCESSING_KEY, task_id)
+                            else:
+                                await self.redis.set(
+                                    self._task_key(task_id),
+                                    fresh_task.model_dump_json(),
+                                    ex=self.ttl_seconds,
+                                )
+                                await self.redis.set(
+                                    self._meta_key(task_id),
+                                    json.dumps(
+                                        {"status": fresh_task.status.value, "agent_id": fresh_task.agent_id}
+                                    ),
+                                    ex=self.ttl_seconds,
+                                )
+                                await self.redis.zrem(self.QUEUE_KEY, task_id)
+                                await self.redis.zrem(self.PROCESSING_KEY, task_id)
+                        except Exception:
+                            logger.exception(
+                                "dequeue: failed to refresh Redis for %s "
+                                "after version conflict",
+                                task_id,
+                            )
+                        return None
                     self._apply_task_fields(orm, task)
                     stmt = (
                         update(TaskORM)
@@ -436,25 +517,7 @@ class RedisTaskQueue(BaseTaskQueue):
                             expected_version,
                             getattr(fresh, "version", None),
                         )
-                        # Another writer won the race and committed between
-                        # our SELECT and UPDATE.  We MUST NOT write the stale
-                        # in-memory ``task`` (still PENDING with the old
-                        # version) back into Redis — doing so would permanently
-                        # mask the winner's real, already-committed PostgreSQL
-                        # state behind an outdated cached copy (e.g. a task a
-                        # concurrent cancel() moved to CANCELLED would keep
-                        # being served as PENDING by get_task() and re-pushed
-                        # onto the queue for another worker to fail to claim).
-                        #
-                        # Re-read the authoritative current row from PostgreSQL
-                        # (``fresh``, fetched just above) and use it — via
-                        # .to_task() — as the single source of truth for the
-                        # Redis cache.  This reflects whatever PostgreSQL
-                        # actually holds after the concurrent writer's commit,
-                        # never data computed from the losing dequeue attempt.
                         if fresh is None:
-                            # Row was deleted underneath us; evict it from Redis
-                            # so get_task() does not serve a stale ghost entry.
                             try:
                                 await self.redis.zrem(self.QUEUE_KEY, task_id)
                                 await self.redis.zrem(self.PROCESSING_KEY, task_id)
@@ -476,13 +539,6 @@ class RedisTaskQueue(BaseTaskQueue):
 
                         try:
                             if still_claimable:
-                                # The row is still claimable (e.g. a concurrent
-                                # reclaim/retry bumped retry_count but left it
-                                # PENDING).  Refresh the Redis cache with the
-                                # *fresh* row's real state and version, and
-                                # re-add it to the queue so the next worker can
-                                # claim it with an up-to-date view — never the
-                                # stale pre-conflict object.
                                 await self.redis.set(
                                     self._task_key(task_id),
                                     fresh_task.model_dump_json(),
@@ -501,13 +557,6 @@ class RedisTaskQueue(BaseTaskQueue):
                                 )
                                 await self.redis.zrem(self.PROCESSING_KEY, task_id)
                             else:
-                                # The winner moved the row to a non-claimable
-                                # state (CANCELLED, COMPLETED, FAILED, RUNNING
-                                # under another lease, ...).  Refresh the Redis
-                                # cache with the fresh row's *actual* state so
-                                # get_task() reflects reality, and leave the
-                                # queue alone — do NOT re-add it or write a
-                                # stale PENDING here.
                                 await self.redis.set(
                                     self._task_key(task_id),
                                     fresh_task.model_dump_json(),
@@ -608,12 +657,20 @@ class RedisTaskQueue(BaseTaskQueue):
                     lease_owner=None,
                     lease_expires_at=None,
                     retry_count=TaskORM.retry_count + 1,
+                    version=TaskORM.version + 1,
                 )
-                .returning(TaskORM.task_id)
+                .returning(
+                    TaskORM.task_id,
+                    TaskORM.version,
+                )
             )
 
             result = await session.execute(update_stmt)
-            reclaimed_ids = [str(r[0]) for r in result.fetchall()]
+            reclaimed_rows = result.fetchall()
+            reclaimed_ids = [str(r[0]) for r in reclaimed_rows]
+            # Map task_id -> new version so we can write the correct version
+            # into the Redis cache below.
+            reclaimed_versions = {str(r[0]): (r[1] or 1) for r in reclaimed_rows}
 
             # Record a structured retry entry per reclaimed task using the
             # pre-update owner/execution. Only tasks actually reclaimed by
@@ -636,6 +693,7 @@ class RedisTaskQueue(BaseTaskQueue):
                     tenant_id=tenant_id,
                     request_id=req_id,
                     message_id=msg_id,
+                    version=reclaimed_versions.get(task_id, 1),
                 )
                 task.started_at = None
                 task.completed_at = None
