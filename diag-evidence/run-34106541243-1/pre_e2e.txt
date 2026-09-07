@@ -1,0 +1,128 @@
+=========== docker compose ps ===========
+NAME                      IMAGE                        COMMAND                  SERVICE    CREATED          STATUS                    PORTS
+agent_platform_api        ai-agent-platform-api        "sh -c 'alembic upgr…"   api        13 seconds ago   Up 6 seconds              0.0.0.0:8000->8000/tcp, [::]:8000->8000/tcp
+agent_platform_postgres   postgres:16-alpine           "docker-entrypoint.s…"   postgres   13 seconds ago   Up 12 seconds (healthy)   0.0.0.0:5433->5432/tcp, [::]:5433->5432/tcp
+agent_platform_redis      redis:7-alpine               "docker-entrypoint.s…"   redis      13 seconds ago   Up 12 seconds (healthy)   0.0.0.0:18379->6379/tcp, [::]:18379->6379/tcp
+agent_platform_worker_1   ai-agent-platform-worker-1   "python scripts/run_…"   worker-1   13 seconds ago   Up 6 seconds              
+agent_platform_worker_2   ai-agent-platform-worker-2   "python scripts/run_…"   worker-2   13 seconds ago   Up 6 seconds              
+
+=========== docker compose logs worker-1 worker-2 api postgres redis --tail=400 ===========
+agent_platform_api       | INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+agent_platform_api       | INFO  [alembic.runtime.migration] Will assume transactional DDL.
+agent_platform_api       | INFO  [alembic.runtime.migration] Running upgrade  -> 443727b49ab2, initial schema
+agent_platform_api       | INFO  [alembic.runtime.migration] Running upgrade 443727b49ab2 -> add_trace_columns, add task trace correlation columns
+agent_platform_api       | INFO  [alembic.runtime.migration] Running upgrade add_trace_columns -> add_version_column, add version column for optimistic locking
+agent_platform_api       | INFO  [alembic.runtime.migration] Running upgrade add_version_column -> add_retry_trace_columns, add queue message id, error category and retry history columns
+agent_platform_api       | INFO:     Started server process [10]
+agent_platform_api       | INFO:     Waiting for application startup.
+agent_platform_api       | INFO:     Application startup complete.
+agent_platform_api       | INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+agent_platform_api       | INFO:     172.19.0.1:47358 - "GET /health HTTP/1.1" 200 OK
+agent_platform_postgres  | The files belonging to this database system will be owned by user "postgres".
+agent_platform_postgres  | This user must also own the server process.
+agent_platform_postgres  | 
+agent_platform_postgres  | The database cluster will be initialized with locale "en_US.utf8".
+agent_platform_postgres  | The default database encoding has accordingly been set to "UTF8".
+agent_platform_postgres  | The default text search configuration will be set to "english".
+agent_platform_postgres  | 
+agent_platform_redis     | 1:C 07 Sep 2026 09:37:25.922 # WARNING Memory overcommit must be enabled! Without it, a background save or replication may fail under low memory condition. Being disabled, it can also cause failures without low memory condition, see https://github.com/jemalloc/jemalloc/issues/1328. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.
+agent_platform_postgres  | Data page checksums are enabled.
+agent_platform_redis     | 1:C 07 Sep 2026 09:37:25.922 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+agent_platform_postgres  | 
+agent_platform_redis     | 1:C 07 Sep 2026 09:37:25.922 * Redis version=7.4.11, bits=64, commit=00000000, modified=0, pid=1, just started
+agent_platform_postgres  | fixing permissions on existing directory /var/lib/postgresql/data ... ok
+agent_platform_redis     | 1:C 07 Sep 2026 09:37:25.922 # Warning: no config file specified, using the default config. In order to specify a config file use redis-server /path/to/redis.conf
+agent_platform_postgres  | creating subdirectories ... ok
+agent_platform_redis     | 1:M 07 Sep 2026 09:37:25.922 * monotonic clock: POSIX clock_gettime
+agent_platform_postgres  | selecting dynamic shared memory implementation ... posix
+agent_platform_redis     | 1:M 07 Sep 2026 09:37:25.923 * Running mode=standalone, port=6379.
+agent_platform_postgres  | selecting default max_connections ... 100
+agent_platform_redis     | 1:M 07 Sep 2026 09:37:25.923 * Server initialized
+agent_platform_postgres  | selecting default shared_buffers ... 128MB
+agent_platform_redis     | 1:M 07 Sep 2026 09:37:25.923 * Ready to accept connections tcp
+agent_platform_postgres  | selecting default time zone ... UTC
+agent_platform_postgres  | creating configuration files ... ok
+agent_platform_postgres  | running bootstrap script ... ok
+agent_platform_postgres  | sh: locale: not found
+agent_platform_postgres  | 2026-09-07 09:37:26.426 UTC [35] WARNING:  no usable system locales were found
+agent_platform_postgres  | performing post-bootstrap initialization ... ok
+agent_platform_postgres  | syncing data to disk ... ok
+agent_platform_postgres  | 
+agent_platform_postgres  | 
+agent_platform_postgres  | Success. You can now start the database server using:
+agent_platform_postgres  | 
+agent_platform_postgres  |     pg_ctl -D /var/lib/postgresql/data -l logfile start
+agent_platform_postgres  | 
+agent_platform_postgres  | initdb: warning: enabling "trust" authentication for local connections
+agent_platform_postgres  | initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+agent_platform_postgres  | waiting for server to start....2026-09-07 09:37:27.015 UTC [41] LOG:  starting PostgreSQL 16.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+agent_platform_postgres  | 2026-09-07 09:37:27.016 UTC [41] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+agent_platform_postgres  | 2026-09-07 09:37:27.019 UTC [44] LOG:  database system was shut down at 2026-09-07 09:37:26 UTC
+agent_platform_postgres  | 2026-09-07 09:37:27.025 UTC [41] LOG:  database system is ready to accept connections
+agent_platform_postgres  |  done
+agent_platform_postgres  | server started
+agent_platform_postgres  | CREATE DATABASE
+agent_platform_postgres  | 
+agent_platform_postgres  | 
+agent_platform_postgres  | /usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*
+agent_platform_postgres  | 
+agent_platform_postgres  | waiting for server to shut down....2026-09-07 09:37:27.149 UTC [41] LOG:  received fast shutdown request
+agent_platform_postgres  | 2026-09-07 09:37:27.149 UTC [41] LOG:  aborting any active transactions
+agent_platform_postgres  | 2026-09-07 09:37:27.152 UTC [41] LOG:  background worker "logical replication launcher" (PID 47) exited with exit code 1
+agent_platform_postgres  | 2026-09-07 09:37:27.153 UTC [42] LOG:  shutting down
+agent_platform_postgres  | 2026-09-07 09:37:27.154 UTC [42] LOG:  checkpoint starting: shutdown immediate
+agent_platform_postgres  | 2026-09-07 09:37:27.172 UTC [42] LOG:  checkpoint complete: wrote 926 buffers (5.7%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.016 s, sync=0.002 s, total=0.019 s; sync files=301, longest=0.001 s, average=0.001 s; distance=4283 kB, estimate=4283 kB; lsn=0/1B68870, redo lsn=0/1B68870
+agent_platform_postgres  | 2026-09-07 09:37:27.185 UTC [41] LOG:  database system is shut down
+agent_platform_postgres  |  done
+agent_platform_postgres  | server stopped
+agent_platform_postgres  | 
+agent_platform_postgres  | PostgreSQL init process complete; ready for start up.
+agent_platform_postgres  | 
+agent_platform_postgres  | 2026-09-07 09:37:27.291 UTC [1] LOG:  starting PostgreSQL 16.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+agent_platform_postgres  | 2026-09-07 09:37:27.291 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+agent_platform_postgres  | 2026-09-07 09:37:27.291 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+agent_platform_postgres  | 2026-09-07 09:37:27.292 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+agent_platform_postgres  | 2026-09-07 09:37:27.295 UTC [57] LOG:  database system was shut down at 2026-09-07 09:37:27 UTC
+agent_platform_postgres  | 2026-09-07 09:37:27.300 UTC [1] LOG:  database system is ready to accept connections
+agent_platform_worker_1  | 2026-09-07 09:37:32,910 | INFO | __main__ | Starting worker worker-1
+agent_platform_worker_1  | 2026-09-07 09:37:32,911 | INFO | __main__ | Redis URL: redis://redis:6379/1
+agent_platform_worker_1  | 2026-09-07 09:37:32,972 | INFO | __main__ | Redis connection established
+agent_platform_worker_1  | 2026-09-07 09:37:33,058 | INFO | __main__ | Using local BGE-M3 model: /app/models/bge-m3
+agent_platform_worker_1  | 2026-09-07 09:37:33,059 | INFO | __main__ | Initializing agent bge-m3...
+agent_platform_worker_1  | 2026-09-07 09:37:33,059 | INFO | src.agents.bge_m3_agent | Using local BGE-M3 model: /app/models/bge-m3
+agent_platform_worker_2  | 2026-09-07 09:37:32,588 | INFO | __main__ | Starting worker worker-2
+agent_platform_worker_2  | 2026-09-07 09:37:32,588 | INFO | __main__ | Redis URL: redis://redis:6379/1
+agent_platform_worker_2  | 2026-09-07 09:37:32,632 | INFO | __main__ | Redis connection established
+agent_platform_worker_2  | 2026-09-07 09:37:32,690 | INFO | __main__ | Using local BGE-M3 model: /app/models/bge-m3
+agent_platform_worker_2  | 2026-09-07 09:37:32,690 | INFO | __main__ | Initializing agent bge-m3...
+agent_platform_worker_2  | 2026-09-07 09:37:32,690 | INFO | src.agents.bge_m3_agent | Using local BGE-M3 model: /app/models/bge-m3
+
+=========== docker stats --no-stream ===========
+NAME                                                       CPU %     MEM USAGE / LIMIT     MEM %     NET I/O           BLOCK I/O
+agent_platform_worker_2                                    100.88%   1.539GiB / 4GiB       38.47%    1.73kB / 1.14kB   0B / 0B
+agent_platform_worker_1                                    99.55%    1.534GiB / 4GiB       38.36%    1.82kB / 1.14kB   0B / 0B
+agent_platform_api                                         0.16%     198.5MiB / 2GiB       9.69%     16kB / 19kB       0B / 0B
+agent_platform_redis                                       0.45%     8.801MiB / 256MiB     3.44%     3.75kB / 1.83kB   385kB / 0B
+agent_platform_postgres                                    0.02%     65.07MiB / 4GiB       1.59%     19.7kB / 14.1kB   12.5MB / 52.8MB
+8d45a3311d214485bb125b44cd688832_redis7alpine_52a8bb       0.39%     8.934MiB / 15.61GiB   0.06%     27kB / 13.9kB     545kB / 0B
+c445316d199a4850b0f6cd9b57e4c784_postgres16alpine_a63b3b   0.73%     46.86MiB / 15.61GiB   0.29%     287kB / 296kB     6.36MB / 64.3MB
+
+=========== docker inspect workers (State / RestartCount / OOMKilled) ===========
+--- agent_platform_worker_1 ---
+/agent_platform_worker_1 state=running restartCount=0 oomKilled=false exitCode=0 startedAt=2026-09-07T09:37:31.426111531Z finishedAt=0001-01-01T00:00:00Z
+--- agent_platform_worker_2 ---
+/agent_platform_worker_2 state=running restartCount=0 oomKilled=false exitCode=0 startedAt=2026-09-07T09:37:31.443400834Z finishedAt=0001-01-01T00:00:00Z
+--- agent_platform_api ---
+/agent_platform_api state=running restartCount=0 oomKilled=false exitCode=0 startedAt=2026-09-07T09:37:31.426641055Z finishedAt=0001-01-01T00:00:00Z
+
+=========== Redis queue state ===========
+0
+0
+0
+
+
+=========== Postgres tasks table snapshot ===========
+ task_id | status | version | retry_count | lease_owner | lease_expires_at | started_at | completed_at | error 
+---------+--------+---------+-------------+-------------+------------------+------------+--------------+-------
+(0 rows)
+
