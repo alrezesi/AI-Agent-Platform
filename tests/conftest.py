@@ -219,7 +219,7 @@ def docker_ready():
 async def pg_engine(ensure_test_db):
     """Create an async PostgreSQL engine. Function-scoped to avoid
     cross-loop issues with pytest-asyncio."""
-    engine = create_async_engine(POSTGRES_URL, pool_size=50, max_overflow=50)
+    engine = create_async_engine(POSTGRES_URL, pool_size=20, max_overflow=20, connect_args={"timeout": 180, "ssl": False})
     # Ensure schema exists AND is up-to-date with all alembic migrations.
     # ``Base.metadata.create_all`` only creates tables that don't exist; it
     # does NOT add columns that were added by later migrations (e.g.
@@ -236,7 +236,21 @@ async def pg_engine(ensure_test_db):
     # Run as a subprocess so alembic's own ``env.py`` (which calls
     # ``asyncio.run``) does not conflict with the pytest-asyncio event loop.
     _run_migrations_subprocess(POSTGRES_URL)
-    engine = create_async_engine(POSTGRES_URL, pool_size=50, max_overflow=50)
+    engine = create_async_engine(POSTGRES_URL, pool_size=20, max_overflow=20, connect_args={"timeout": 180, "ssl": False})
+    # Pre-warm the pool in small batches so Postgres authentication can keep up.
+    # Without this, concurrent coroutines launching simultaneously would all try to
+    # create new connections at once, overwhelming Postgres's auth process.
+    conns = []
+    batch_size = 10
+    for i in range(0, 40, batch_size):
+        batch = []
+        for _ in range(min(batch_size, 40 - i)):
+            conn = await engine.connect()
+            batch.append(conn)
+        conns.extend(batch)
+        await asyncio.sleep(0.5)
+    for conn in conns:
+        await conn.close()
     yield engine
     await engine.dispose()
 
@@ -289,7 +303,7 @@ async def redis_client():
     """Provide a real Redis client, flushed before and after each test."""
     import redis.asyncio
 
-    r = redis.asyncio.Redis.from_url(REDIS_URL, max_connections=2000)
+    r = redis.asyncio.Redis.from_url(REDIS_URL, max_connections=2000, socket_connect_timeout=30)
     await r.flushdb()
     yield r
     await r.flushdb()
