@@ -44,6 +44,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: agent_platform_postgres
+    command: ["postgres", "-c", "max_connections=1000"]
     environment:
       POSTGRES_USER: agent
       POSTGRES_PASSWORD: agent123
@@ -61,8 +62,8 @@ services:
     restart: unless-stopped
     networks:
       - agent-network
-    cpus: "0.5"
-    mem_limit: 512m
+    cpus: "2.0"
+    mem_limit: 4g
 
   redis:
     image: redis:7-alpine

@@ -36,6 +36,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: chaos_postgres
+    command: ["postgres", "-c", "max_connections=1000"]
     environment:
       POSTGRES_USER: agent
       POSTGRES_PASSWORD: agent123
@@ -51,6 +52,8 @@ services:
       retries: 5
     networks:
       - chaos_net
+    cpus: "2.0"
+    mem_limit: 4g
 
   redis:
     image: redis:7-alpine
