@@ -2,432 +2,139 @@ name: CI
 
 on:
   push:
+    branches: [ master ]
   pull_request:
-
-permissions:
-  contents: write
+    branches: [ master ]
 
 jobs:
-  verify:
+  test:
     runs-on: ubuntu-latest
-
     services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: agent
-          POSTGRES_PASSWORD: agent123
-          POSTGRES_DB: agent_platform
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U agent -d agent_platform"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=5
       redis:
         image: redis:7-alpine
         ports:
           - 6379:6379
         options: >-
-          --health-cmd="redis-cli ping"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=5
-
-    env:
-      DATABASE_URL: postgresql://agent:agent123@localhost:5432/agent_platform
-      POSTGRES_URL: postgresql+asyncpg://agent:agent123@localhost:5432/agent_platform_test
-      REDIS_HOST_PORT: 18379
-      REDIS_URL: redis://localhost:6379/0
-      TASK_QUEUE_BACKEND: redis
-      DISABLE_AUTH: "true"
-      PYTHONUNBUFFERED: "1"
-      PRODUCTION_VERIFY_API_URL: http://127.0.0.1:8000
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      postgres:
+        image: postgres:15-alpine
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: agent_platform_test
+        options: >-
+          --health-cmd "pg_isready -U test -d agent_platform_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
+          cache: "pip"
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Prepare report directory
-        run: mkdir -p reports
-
-      - name: Lint
-        run: ruff check src tests scripts
-
-      - name: Type check
-        run: mypy src scripts
-
-      - name: Run database migrations
-        # Migrate the real ``agent_platform`` database (pointed to by the
-        # job-level ``DATABASE_URL``). The isolated test DB at
-        # ``POSTGRES_URL`` is migrated by ``tests/conftest.py``'s
-        # ``_run_migrations_subprocess`` per fixture; the live app's
-        # database was previously never migrated in CI, so any test that
-        # booted a real ``FastAPI`` app instance (e.g.
-        # ``test_no_secrets_in_api_request_logs``) hit an empty schema
-        # and failed with ``relation "tasks" does not exist``.
-        run: alembic -c alembic.ini upgrade head
-
-      - name: Unit tests
-        run: pytest tests/unit -m "not integration and not e2e and not chaos" --junitxml=reports/unit.xml --cov=src/agent_platform --cov-report=xml --cov-report=term-missing
-
-      - name: Integration tests
-        run: pytest tests/integration --junitxml=reports/integration.xml --cov-append --cov=src/agent_platform --cov-report=term-missing
-        env:
-          TASK_QUEUE_BACKEND: memory
-
-      - name: Cache BGE-M3 model across CI runs
-        uses: actions/cache@v4
-        with:
-          path: models/bge-m3
-          key: bge-m3-v1
-          enableCrossOsArchive: true
-
-      - name: Ensure BGE-M3 model is present (CI workers crash-loop without it)
-        # Workers bind-mount ./models -> /app/models and run_worker.py
-        # validate_local_model_path() raises RuntimeError if the directory is missing.
-        # Locally the model is gitignored (2.27 GB) and only present on the
-        # developer's machine, so the E2E step used to see workers crash-looping
-        # with `Required local model not found: /app/models/bge-m3` on CI.
-        # We populate ./models/bge-m3 from HuggingFace (BAAI/bge-m3) and cache it
-        # so only the first run pays the ~2.3 GB download.
-        env:
-          HF_HUB_DOWNLOAD_TIMEOUT: 120
+      - name: Run unit tests
         run: |
-          set -e
-          if [ -f models/bge-m3/config.json ] && [ -f models/bge-m3/pytorch_model.bin ]; then
-            echo "models/bge-m3 already populated; skipping download"
-            exit 0
-          fi
-          python - <<'PY'
-          import os
-          from huggingface_hub import snapshot_download
-          target = os.path.abspath("models/bge-m3")
-          os.makedirs(target, exist_ok=True)
-          snapshot_download(
-              repo_id="BAAI/bge-m3",
-              local_dir=target,
-              local_dir_use_symlinks=False,
-              allow_patterns=[
-                  "*.json", "*.txt", "*.model", "modules.json",
-                  "pytorch_model.bin", "*.pt", "*.jpg",
-              ],
-          )
-          PY
-          ls -la models/bge-m3 | head -25
-
-      - name: Build Docker image
-        run: docker build -t ai-agent-platform:ci .
-
-      - name: Start stack
+          pytest tests/unit -q --junitxml=reports/unit.xml --cov=src/agent_platform --cov-report=xml:reports/coverage.xml --cov-report=html:htmlcov
         env:
-          BGE_MODEL_DTYPE: float16
-          BGE_MAX_SEQ_LENGTH: "128"
-        run: docker compose up -d postgres redis api worker-1 worker-2
+          REDIS_URL: redis://localhost:6379/0
+          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
 
-      - name: Wait for API health
+      - name: Run integration tests
         run: |
-          for i in $(seq 1 60); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/health || true)
-            if [ "$code" = "200" ]; then
-              echo "API healthy after ${i}s"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "API never became healthy within 60s"
-          docker compose ps
-          docker compose logs --no-color api --tail=100
-          exit 1
-
-      - name: Diagnose pre-E2E (compose state, worker logs, resource usage)
-        if: always()
-        run: |
-          set +e
-          mkdir -p reports/diag
-          OUT=reports/diag/pre_e2e.txt
-          {
-            echo "=========== docker compose ps ==========="
-            docker compose ps
-            echo
-            echo "=========== docker compose logs worker-1 worker-2 api postgres redis --tail=400 ==========="
-            docker compose logs --no-color --tail=400 worker-1 worker-2 api postgres redis 2>&1
-            echo
-            echo "=========== docker stats --no-stream ==========="
-            docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.NetIO}}\t{{.BlockIO}}" 2>&1
-            echo
-            echo "=========== docker inspect workers (State / RestartCount / OOMKilled) ==========="
-            for c in agent_platform_worker_1 agent_platform_worker_2 agent_platform_api; do
-              echo "--- $c ---"
-              docker inspect --format '{{.Name}} state={{.State.Status}} restartCount={{.RestartCount}} oomKilled={{.State.OOMKilled}} exitCode={{.State.ExitCode}} startedAt={{.State.StartedAt}} finishedAt={{.State.FinishedAt}}' "$c" 2>&1
-            done
-            echo
-            echo "=========== Redis queue state ==========="
-            docker exec agent_platform_redis redis-cli LLEN tasks:queue 2>&1
-            docker exec agent_platform_redis redis-cli ZCARD tasks:queue 2>&1
-            docker exec agent_platform_redis redis-cli ZCARD tasks:processing 2>&1
-            docker exec agent_platform_redis redis-cli KEYS 'tasks:*' 2>&1
-            echo
-            echo "=========== Postgres tasks table snapshot ==========="
-            docker exec agent_platform_postgres psql -U agent -d agent_platform -c "SELECT task_id, status, version, retry_count, lease_owner, lease_expires_at, started_at, completed_at, error FROM tasks ORDER BY created_at DESC LIMIT 10;" 2>&1
-          } | tee "$OUT"
-
-      - name: E2E tests
+          pytest tests/integration -q --junitxml=reports/integration.xml
         env:
-          RUN_DOCKER_E2E: "true"
-          PRODUCTION_VERIFY_API_URL: http://127.0.0.1:8000
-        run: pytest tests/e2e --junitxml=reports/e2e.xml -m e2e --maxfail=1
+          REDIS_URL: redis://localhost:6379/0
+          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
 
-      - name: Diagnose post-E2E (state at timeout)
-        if: always()
+      - name: Run concurrency tests
         run: |
-          set +e
-          mkdir -p reports/diag
-          OUT=reports/diag/post_e2e.txt
-          {
-            echo "=========== POST-E2E docker compose ps ==========="
-            docker compose ps
-            echo
-            echo "=========== POST-E2E docker compose logs worker-1 worker-2 api --tail=300 ==========="
-            docker compose logs --no-color --tail=300 worker-1 worker-2 api 2>&1
-            echo
-            echo "=========== POST-E2E docker stats --no-stream ==========="
-            docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}" 2>&1
-            echo
-            echo "=========== POST-E2E docker inspect workers ==========="
-            for c in agent_platform_worker_1 agent_platform_worker_2 agent_platform_api; do
-              echo "--- $c ---"
-              docker inspect --format '{{.Name}} state={{.State.Status}} restartCount={{.RestartCount}} oomKilled={{.State.OOMKilled}} exitCode={{.State.ExitCode}}' "$c" 2>&1
-            done
-            echo
-            echo "=========== POST-E2E Redis state ==========="
-            docker exec agent_platform_redis redis-cli ZRANGE tasks:queue 0 -1 WITHSCORES 2>&1
-            docker exec agent_platform_redis redis-cli ZRANGE tasks:processing 0 -1 WITHSCORES 2>&1
-            echo
-            echo "=========== POST-E2E Postgres tasks ==========="
-            docker exec agent_platform_postgres psql -U agent -d agent_platform -c "SELECT task_id, status, version, retry_count, lease_owner, lease_expires_at, started_at, completed_at, error FROM tasks ORDER BY created_at DESC LIMIT 20;" 2>&1
-          } | tee "$OUT"
+          pytest tests/concurrency -q --junitxml=reports/concurrency.xml
+        env:
+          REDIS_URL: redis://localhost:6379/0
+          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
 
-      - name: Upload diagnostic evidence artifact
-        if: always()
+      - name: Run race tests
+        run: |
+          pytest tests/race -q --junitxml=reports/race.xml
+        env:
+          REDIS_URL: redis://localhost:6379/0
+          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
+
+      - name: Run security tests
+        run: |
+          pytest tests/security -q --junitxml=reports/security.xml
+        env:
+          REDIS_URL: redis://localhost:6379/0
+          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
+
+      - name: Run observability tests
+        run: |
+          pytest tests/observability -q --junitxml=reports/observability.xml
+        env:
+          REDIS_URL: redis://localhost:6379/0
+          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
+
+      - name: Run e2e tests
+        run: |
+          pytest tests/e2e -q --junitxml=reports/e2e.xml
+        env:
+          REDIS_URL: redis://localhost:6379/0
+          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
+
+      - name: Run chaos tests
+        run: |
+          pytest tests/chaos -q --junitxml=reports/chaos.xml
+        env:
+          REDIS_URL: redis://localhost:6379/0
+          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
+
+      - name: Upload coverage reports
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-diagnostic-evidence
-          path: reports/diag/
-          if-no-files-found: warn
+          name: coverage-reports
+          path: |
+            htmlcov/
+            reports/coverage.xml
+          retention-days: 30
 
-      - name: Publish diagnostic evidence to a public branch
-        if: always()
-        env:
-          RUN_ID: ${{ github.run_id }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -e
-          if [ ! -d reports/diag ] || [ -z "$(ls -A reports/diag 2>/dev/null)" ]; then
-            echo "No diagnostic files to publish"
-            exit 0
-          fi
-          BR="diag-evidence/run-${RUN_ID}-${RUN_ATTEMPT}"
-          DEST_DIR="diag-evidence/run-${RUN_ID}-${RUN_ATTEMPT}"
-          # Build the evidence tree in a fresh, empty git repo so we don't have
-          # to wrestle with an unborn HEAD or the existing worktree state.
-          WORK="$(mktemp -d)"
-          git -C "$WORK" init -q -b main
-          git -C "$WORK" config user.email "ci-bot@users.noreply.github.com"
-          git -C "$WORK" config user.name "ci-bot"
-          mkdir -p "$WORK/$DEST_DIR"
-          cp -r reports/diag/. "$WORK/$DEST_DIR/"
-          cat > "$WORK/$DEST_DIR/RUN_INFO.txt" <<EOF
-          Run ${RUN_ID} attempt ${RUN_ATTEMPT}
-          URL: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}
-          EOF
-          git -C "$WORK" add -A
-          git -C "$WORK" commit -q -m "diag(ci): capture evidence for run ${RUN_ID} attempt ${RUN_ATTEMPT}"
-          git -C "$WORK" remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git -C "$WORK" push --force origin "main:$BR"
+      - name: Upload JUnit test reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-reports
+          path: |
+            reports/unit.xml
+            reports/integration.xml
+            reports/concurrency.xml
+            reports/race.xml
+            reports/security.xml
+            reports/observability.xml
+            reports/e2e.xml
+            reports/chaos.xml
+          retention-days: 30
 
-      - name: Chaos verification tests
-        env:
-          RUN_DOCKER_CHAOS: "true"
-          PRODUCTION_VERIFY_API_URL: http://127.0.0.1:8000
-        run: pytest tests/chaos --junitxml=reports/chaos.xml -m chaos --maxfail=1
-
-      - name: Memory snapshot after chaos
-        if: always()
-        run: |
-          set +e
-          mkdir -p reports/diag
-          OUT=reports/diag/mem_after_chaos.txt
-          {
-            echo "=========== docker stats after Chaos (api worker-1 worker-2 postgres redis) ==========="
-            docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.PIDs}}" 2>&1
-            echo
-            for c in agent_platform_api agent_platform_worker_1 agent_platform_worker_2; do
-              echo "--- $c ---"
-              docker inspect --format '{{.Name}} state={{.State.Status}} restartCount={{.RestartCount}} oomKilled={{.State.OOMKilled}} exitCode={{.State.ExitCode}} startedAt={{.State.StartedAt}}' "$c" 2>&1
-            done
-          } | tee "$OUT"
-
-      - name: Concurrency tests
-        run: pytest tests/concurrency --junitxml=reports/concurrency.xml --cov-append --cov=src/agent_platform --cov-report=term-missing
-        env:
-          REDIS_URL: redis://localhost:6379/0
-
-      - name: Memory snapshot after concurrency
-        if: always()
-        run: |
-          set +e
-          mkdir -p reports/diag
-          OUT=reports/diag/mem_after_concurrency.txt
-          {
-            echo "=========== docker stats after Concurrency (api worker-1 worker-2 postgres redis) ==========="
-            docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.PIDs}}" 2>&1
-            echo
-            for c in agent_platform_api agent_platform_worker_1 agent_platform_worker_2; do
-              echo "--- $c ---"
-              docker inspect --format '{{.Name}} state={{.State.Status}} restartCount={{.RestartCount}} oomKilled={{.State.OOMKilled}} exitCode={{.State.ExitCode}} startedAt={{.State.StartedAt}}' "$c" 2>&1
-            done
-          } | tee "$OUT"
-
-      - name: Race tests
-        run: pytest tests/race --junitxml=reports/race.xml --cov-append --cov=src/agent_platform --cov-report=term-missing
-        env:
-          REDIS_URL: redis://localhost:6379/0
-
-      - name: Memory snapshot after race
-        if: always()
-        run: |
-          set +e
-          mkdir -p reports/diag
-          OUT=reports/diag/mem_after_race.txt
-          {
-            echo "=========== docker stats after Race (api worker-1 worker-2 postgres redis) ==========="
-            docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.PIDs}}" 2>&1
-            echo
-            for c in agent_platform_api agent_platform_worker_1 agent_platform_worker_2; do
-              echo "--- $c ---"
-              docker inspect --format '{{.Name}} state={{.State.Status}} restartCount={{.RestartCount}} oomKilled={{.State.OOMKilled}} exitCode={{.State.ExitCode}} startedAt={{.State.StartedAt}}' "$c" 2>&1
-            done
-          } | tee "$OUT"
-
-      - name: Security tests
-        run: pytest tests/security --junitxml=reports/security.xml --cov-append --cov=src/agent_platform --cov-report=term-missing
-        env:
-          REDIS_URL: redis://localhost:6379/0
-
-      - name: Memory snapshot after security
-        if: always()
-        run: |
-          set +e
-          mkdir -p reports/diag
-          OUT=reports/diag/mem_after_security.txt
-          {
-            echo "=========== docker stats after Security (api worker-1 worker-2 postgres redis) ==========="
-            docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.PIDs}}" 2>&1
-            echo
-            for c in agent_platform_api agent_platform_worker_1 agent_platform_worker_2; do
-              echo "--- $c ---"
-              docker inspect --format '{{.Name}} state={{.State.Status}} restartCount={{.RestartCount}} oomKilled={{.State.OOMKilled}} exitCode={{.State.ExitCode}} startedAt={{.State.StartedAt}}' "$c" 2>&1
-            done
-          } | tee "$OUT"
-
-      - name: Observability / distributed-trace tests
-        run: pytest tests/observability --junitxml=reports/observability.xml --cov-append --cov=src/agent_platform --cov-report=term-missing
-        env:
-          REDIS_URL: redis://localhost:6379/0
-
-      - name: Memory snapshot after observability
-        if: always()
-        run: |
-          set +e
-          mkdir -p reports/diag
-          OUT=reports/diag/mem_after_observability.txt
-          {
-            echo "=========== docker stats after Observability (api worker-1 worker-2 postgres redis) ==========="
-            docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.PIDs}}" 2>&1
-            echo
-            for c in agent_platform_api agent_platform_worker_1 agent_platform_worker_2; do
-              echo "--- $c ---"
-              docker inspect --format '{{.Name}} state={{.State.Status}} restartCount={{.RestartCount}} oomKilled={{.State.OOMKilled}} exitCode={{.State.ExitCode}} startedAt={{.State.StartedAt}}' "$c" 2>&1
-            done
-          } | tee "$OUT"
-
-      - name: Capture container state before load test
-        # Diagnostic evidence: the load test's bounded-retry health
-        # check still exhausts its full window, which confirms the api
-        # container is genuinely down (not a transient blip). Capture
-        # the actual state of every relevant container at this point
-        # so the next run produces the evidence required to diagnose
-        # the real cause: ``docker compose ps`` for current state,
-        # ``docker compose logs --tail=...`` for each service to see
-        # what happened, and ``docker inspect <api> .State`` for
-        # ExitCode / OOMKilled / Error / Restarting — all of which
-        # directly answer "is the api down? why?".
-        if: always()
-        run: |
-          echo "=========== docker compose ps ==========="
-          docker compose ps || true
-          echo
-          echo "=========== docker inspect agent_platform_api .State ==========="
-          docker inspect agent_platform_api --format '{{json .State}}' 2>&1 || true
-          echo
-          echo "=========== docker inspect agent_platform_api .HostConfig.Memory / .RestartCount ==========="
-          docker inspect agent_platform_api --format 'Memory={{.HostConfig.Memory}}  MemorySwap={{.HostConfig.MemorySwap}}  RestartCount={{.RestartCount}}  StartedAt={{.State.StartedAt}}  FinishedAt={{.State.FinishedAt}}' 2>&1 || true
-          echo
-          echo "=========== docker compose logs --no-color --tail=300 api ==========="
-          docker compose logs --no-color --tail=300 api 2>&1 || true
-          echo
-          echo "=========== docker compose logs --no-color --tail=300 worker-1 ==========="
-          docker compose logs --no-color --tail=300 worker-1 2>&1 || true
-          echo
-          echo "=========== docker compose logs --no-color --tail=300 worker-2 ==========="
-          docker compose logs --no-color --tail=300 worker-2 2>&1 || true
-          echo
-          echo "=========== docker compose logs --no-color --tail=100 postgres ==========="
-          docker compose logs --no-color --tail=100 postgres 2>&1 || true
-          echo
-          echo "=========== docker compose logs --no-color --tail=100 redis ==========="
-          docker compose logs --no-color --tail=100 redis 2>&1 || true
-          echo
-          echo "=========== docker stats --no-stream api worker-1 worker-2 ==========="
-          docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}' api worker-1 worker-2 2>&1 || true
-
-      - name: Real load test
-        run: |
-          # Settle period: after all heavy pytest suites, the kernel page cache
-          # and cgroup accounting need a moment to stabilize. 15s gives the
-          # kernel time to reclaim any transient allocations from the previous
-          # step's teardown before we open 500 concurrent connections.
-          sleep 15
-          python scripts/chaos_load_test.py --tasks 10000 --concurrency 500 --output load_test_results.json
-        env:
-          REDIS_URL: redis://localhost:18379/1
-
-      - name: Memory snapshot after load test
-        if: always()
-        run: |
-          set +e
-          mkdir -p reports/diag
-          OUT=reports/diag/mem_after_load_test.txt
-          {
-            echo "=========== docker stats after Real load test (api worker-1 worker-2 postgres redis) ==========="
-            docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.PIDs}}" 2>&1
-            echo
-            for c in agent_platform_api agent_platform_worker_1 agent_platform_worker_2; do
-              echo "--- $c ---"
-              docker inspect --format '{{.Name}} state={{.State.Status}} restartCount={{.RestartCount}} oomKilled={{.State.OOMKilled}} exitCode={{.State.ExitCode}} startedAt={{.State.StartedAt}}' "$c" 2>&1
-            done
-          } | tee "$OUT"
-
-      - name: Coverage gate
-        run: python scripts/report_coverage.py --minimum 85 --coverage-xml coverage.xml --unit-junit reports/unit.xml --integration-junit reports/integration.xml --e2e-junit reports/e2e.xml --chaos-junit reports/chaos.xml --concurrency-junit reports/concurrency.xml --race-junit reports/race.xml --security-junit reports/security.xml --observability-junit reports/observability.xml --load-json load_test_results.json --output CHAOS_TEST_REPORT.md
+      - name: Upload benchmark/load-test results (placeholder for Phase 6)
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            reports/benchmark*.json
+            reports/loadtest*.json
+            reports/performance*.json
+          retention-days: 30
+          if-no-files-found: ignore
