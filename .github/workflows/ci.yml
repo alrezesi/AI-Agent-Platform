@@ -43,6 +43,11 @@ jobs:
           python-version: "3.12"
           cache: "pip"
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev postgresql-client redis-tools
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -109,6 +114,7 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
 
       - name: Upload coverage reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-reports
@@ -118,6 +124,7 @@ jobs:
           retention-days: 30
 
       - name: Upload JUnit test reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: junit-reports
@@ -132,7 +139,20 @@ jobs:
             reports/chaos.xml
           retention-days: 30
 
+      - name: Upload pytest output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-output
+          path: |
+            reports/*.xml
+            reports/*.err
+            reports/*.out
+          retention-days: 30
+          if-no-files-found: ignore
+
       - name: Upload benchmark/load-test results (placeholder for Phase 6)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results
