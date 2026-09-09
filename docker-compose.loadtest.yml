@@ -1,0 +1,132 @@
+# docker-compose.loadtest.yml
+#
+# Compose override that adds 3 extra workers on top of the base 2-worker
+# stack defined in docker-compose.yml.  Intended for load-test / Phase 6
+# scenarios ONLY.  Do NOT merge this into the base file.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.loadtest.yml up -d
+#
+# This yields exactly 5 workers: worker-1, worker-2, worker-3, worker-4, worker-5.
+# Running docker-compose.yml alone still gives the original 2-worker topology.
+
+services:
+  worker-3:
+    build: .
+    shm_size: '256m'
+    oom_score_adj: 500
+    command: ["python", "scripts/run_worker.py"]
+    environment:
+      TASK_QUEUE_BACKEND: redis
+      REDIS_URL: redis://redis:6379/1
+      DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
+      EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
+      BGE_MODEL_PATH: /app/models/bge-m3
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /app/models
+      PYTHONUNBUFFERED: "1"
+      TOKENIZERS_PARALLELISM: "false"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      VECLIB_MAXIMUM_THREADS: "1"
+      TORCH_NUM_THREADS: "1"
+      TORCH_NUM_INTEROP_THREADS: "1"
+      WORKER_ID: worker-3
+      WORKER_PORT: "8003"
+      BGE_MAX_SEQ_LENGTH: ${BGE_MAX_SEQ_LENGTH:-512}
+      BGE_MODEL_DTYPE: ${BGE_MODEL_DTYPE:-float32}
+    volumes:
+      - ./models:/app/models:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - agent-network
+    cpus: "1.0"
+    mem_limit: 4g
+
+  worker-4:
+    build: .
+    shm_size: '256m'
+    oom_score_adj: 500
+    command: ["python", "scripts/run_worker.py"]
+    environment:
+      TASK_QUEUE_BACKEND: redis
+      REDIS_URL: redis://redis:6379/1
+      DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
+      EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
+      BGE_MODEL_PATH: /app/models/bge-m3
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /app/models
+      PYTHONUNBUFFERED: "1"
+      TOKENIZERS_PARALLELISM: "false"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      VECLIB_MAXIMUM_THREADS: "1"
+      TORCH_NUM_THREADS: "1"
+      TORCH_NUM_INTEROP_THREADS: "1"
+      WORKER_ID: worker-4
+      WORKER_PORT: "8004"
+      BGE_MAX_SEQ_LENGTH: ${BGE_MAX_SEQ_LENGTH:-512}
+      BGE_MODEL_DTYPE: ${BGE_MODEL_DTYPE:-float32}
+    volumes:
+      - ./models:/app/models:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - agent-network
+    cpus: "1.0"
+    mem_limit: 4g
+
+  worker-5:
+    build: .
+    shm_size: '256m'
+    oom_score_adj: 500
+    command: ["python", "scripts/run_worker.py"]
+    environment:
+      TASK_QUEUE_BACKEND: redis
+      REDIS_URL: redis://redis:6379/1
+      DATABASE_URL: postgresql://agent:agent123@postgres:5432/agent_platform
+      EXECUTION_COUNTER_REDIS_URL: redis://redis:6379/1
+      BGE_MODEL_PATH: /app/models/bge-m3
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SENTENCE_TRANSFORMERS_HOME: /app/models
+      PYTHONUNBUFFERED: "1"
+      TOKENIZERS_PARALLELISM: "false"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      VECLIB_MAXIMUM_THREADS: "1"
+      TORCH_NUM_THREADS: "1"
+      TORCH_NUM_INTEROP_THREADS: "1"
+      WORKER_ID: worker-5
+      WORKER_PORT: "8005"
+      BGE_MAX_SEQ_LENGTH: ${BGE_MAX_SEQ_LENGTH:-512}
+      BGE_MODEL_DTYPE: ${BGE_MODEL_DTYPE:-float32}
+    volumes:
+      - ./models:/app/models:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - agent-network
+    cpus: "1.0"
+    mem_limit: 4g
