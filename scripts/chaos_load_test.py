@@ -72,22 +72,28 @@ async def _ping_redis(redis: Redis, samples: int = 20) -> float:
 
 
 async def _ping_postgres(samples: int = 20) -> float:
-    """Measure real PostgreSQL round-trip latency using SELECT 1."""
+    """Measure real PostgreSQL round-trip latency using SELECT 1.
+
+    Uses a shared asyncpg connection pool so the timing reflects actual
+    query execution over a pooled connection, not TCP/TLS handshake
+    overhead from creating a brand-new connection on every sample.
+    """
     timings = []
     db_url = _normalize_db_url(DATABASE_URL)
-    for _ in range(samples):
-        start = time.perf_counter()
-        try:
-            conn = await asyncpg.connect(db_url)
+    pool = await asyncpg.create_pool(db_url, min_size=1, max_size=5)
+    try:
+        for _ in range(samples):
+            start = time.perf_counter()
             try:
-                await conn.fetchrow("SELECT 1")
-            finally:
-                await conn.close()
-            timings.append((time.perf_counter() - start) * 1000.0)
-        except Exception as exc:
-            logger.debug("PostgreSQL ping failed: %s", exc)
-            continue
-        await asyncio.sleep(0.05)
+                async with pool.acquire() as conn:
+                    await conn.fetchrow("SELECT 1")
+                timings.append((time.perf_counter() - start) * 1000.0)
+            except Exception as exc:
+                logger.debug("PostgreSQL ping failed: %s", exc)
+                continue
+            await asyncio.sleep(0.05)
+    finally:
+        await pool.close()
     return statistics.mean(timings) if timings else 0.0
 
 
