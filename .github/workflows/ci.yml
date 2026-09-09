@@ -50,29 +50,43 @@ jobs:
 
       - name: Wait for PostgreSQL
         run: |
-          for i in $(seq 1 30); do
-            if pg_isready -h localhost -p 5432 -U test; then
-              echo "PostgreSQL is ready"
-              exit 0
-            fi
-            echo "Waiting for PostgreSQL... ($i/30)"
-            sleep 1
-          done
-          echo "PostgreSQL did not become ready in time"
-          exit 1
+          python -c "
+import time
+import asyncpg
+for i in range(30):
+    try:
+        import asyncio
+        async def check():
+            conn = await asyncpg.connect('postgresql://test:test@localhost:5432/agent_platform_test')
+            await conn.close()
+            return True
+        if asyncio.run(check()):
+            print('PostgreSQL is ready')
+            exit(0)
+    except Exception as e:
+        print(f'Waiting for PostgreSQL... ({i+1}/30): {e}')
+        time.sleep(1)
+print('PostgreSQL did not become ready in time')
+exit(1)
+"
 
       - name: Wait for Redis
         run: |
-          for i in $(seq 1 30); do
-            if redis-cli -h localhost -p 6379 ping; then
-              echo "Redis is ready"
-              exit 0
-            fi
-            echo "Waiting for Redis... ($i/30)"
-            sleep 1
-          done
-          echo "Redis did not become ready in time"
-          exit 1
+          python -c "
+import time
+import redis
+for i in range(30):
+    try:
+        r = redis.Redis(host='localhost', port=6379, db=0)
+        r.ping()
+        print('Redis is ready')
+        exit(0)
+    except Exception as e:
+        print(f'Waiting for Redis... ({i+1}/30): {e}')
+        time.sleep(1)
+print('Redis did not become ready in time')
+exit(1)
+"
 
       - name: Run unit tests
         run: |
