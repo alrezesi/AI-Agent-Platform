@@ -62,8 +62,10 @@ class AgentEngine:
         try:
             await agent.initialize()
             agent._initialized = True
-            # Set state to RUNNING after successful initialization
-            agent.state = AgentRuntimeState.RUNNING
+            # Respect the state chosen by initialize(); do not silently
+            # override ERROR (or any other non-default state) back to RUNNING.
+            if agent.state == AgentRuntimeState.IDLE:
+                agent.state = AgentRuntimeState.RUNNING
         except Exception as e:
             logger.error(f"Failed to initialize agent {agent_id}: {e}")
             agent.state = AgentRuntimeState.ERROR

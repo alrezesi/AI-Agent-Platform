@@ -96,8 +96,4 @@ class Workflow(BaseModel):
 
     def get_roots(self) -> list[str]:
         """Get step IDs that have no dependencies."""
-        all_deps = set()
-        for step in self.steps:
-            for dep in step.dependencies:
-                all_deps.add(dep.depends_on)
-        return [s.step_id for s in self.steps if s.step_id not in all_deps]
+        return [s.step_id for s in self.steps if not s.dependencies]
