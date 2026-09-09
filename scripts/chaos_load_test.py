@@ -12,17 +12,28 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+import asyncpg
 import httpx
 from redis.asyncio import Redis
 
 API_URL = "http://localhost:8000"
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/1")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://test:test@localhost:5432/agent_platform_test")
 DEFAULT_TASKS = 10_000
 DEFAULT_CONCURRENCY = 500
 WORKER_CONTAINERS = [
     "agent_platform_worker_1",
     "agent_platform_worker_2",
 ]
+
+
+def _normalize_db_url(url: str) -> str:
+    """Convert SQLAlchemy-style postgresql+asyncpg:// to asyncpg-compatible postgresql://."""
+    if url.startswith("postgresql+asyncpg://"):
+        return url.replace("postgresql+asyncpg://", "postgresql://", 1)
+    if url.startswith("postgresql://"):
+        return url
+    return url
 
 logger = logging.getLogger(__name__)
 
@@ -60,15 +71,24 @@ async def _ping_redis(redis: Redis, samples: int = 20) -> float:
     return statistics.mean(timings)
 
 
-async def _ping_postgres(client: httpx.AsyncClient, samples: int = 20) -> float:
+async def _ping_postgres(samples: int = 20) -> float:
+    """Measure real PostgreSQL round-trip latency using SELECT 1."""
     timings = []
+    db_url = _normalize_db_url(DATABASE_URL)
     for _ in range(samples):
         start = time.perf_counter()
-        resp = await client.get(f"{API_URL}/health")
-        resp.raise_for_status()
-        timings.append((time.perf_counter() - start) * 1000.0)
+        try:
+            conn = await asyncpg.connect(db_url)
+            try:
+                await conn.fetchrow("SELECT 1")
+            finally:
+                await conn.close()
+            timings.append((time.perf_counter() - start) * 1000.0)
+        except Exception as exc:
+            logger.debug("PostgreSQL ping failed: %s", exc)
+            continue
         await asyncio.sleep(0.05)
-    return statistics.mean(timings)
+    return statistics.mean(timings) if timings else 0.0
 
 
 def _docker_stats() -> tuple[dict, dict]:
@@ -236,7 +256,7 @@ async def run_load(total_tasks: int, concurrency: int) -> LoadMetrics:
         cpu, memory = _docker_stats()
         queue_depth = int(await redis.zcard("tasks:queue"))
         redis_latency = await _ping_redis(redis)
-        postgres_latency = await _ping_postgres(client)
+        postgres_latency = await _ping_postgres()
         await redis.aclose()
 
     # GUARD against the defect that produced the all-zero report: if the run
