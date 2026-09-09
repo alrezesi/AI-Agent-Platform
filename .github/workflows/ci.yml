@@ -59,56 +59,56 @@ jobs:
 
       - name: Run unit tests
         run: |
-          pytest tests/unit -q --junitxml=reports/unit.xml --cov=src/agent_platform --cov-report=xml:reports/coverage.xml --cov-report=html:htmlcov --tb=short
+          pytest tests/unit -q --junitxml=reports/unit.xml --cov=src/agent_platform --cov-report=xml:reports/coverage.xml --cov-report=html:htmlcov --tb=short 2>&1 | tee reports/unit-tests-output.txt
         env:
           REDIS_URL: redis://localhost:6379/0
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
 
       - name: Run integration tests
         run: |
-          pytest tests/integration -q --junitxml=reports/integration.xml
+          pytest tests/integration -q --junitxml=reports/integration.xml 2>&1 | tee reports/integration-tests-output.txt
         env:
           REDIS_URL: redis://localhost:6379/0
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
 
       - name: Run concurrency tests
         run: |
-          pytest tests/concurrency -q --junitxml=reports/concurrency.xml
+          pytest tests/concurrency -q --junitxml=reports/concurrency.xml 2>&1 | tee reports/concurrency-tests-output.txt
         env:
           REDIS_URL: redis://localhost:6379/0
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
 
       - name: Run race tests
         run: |
-          pytest tests/race -q --junitxml=reports/race.xml
+          pytest tests/race -q --junitxml=reports/race.xml 2>&1 | tee reports/race-tests-output.txt
         env:
           REDIS_URL: redis://localhost:6379/0
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
 
       - name: Run security tests
         run: |
-          pytest tests/security -q --junitxml=reports/security.xml
+          pytest tests/security -q --junitxml=reports/security.xml 2>&1 | tee reports/security-tests-output.txt
         env:
           REDIS_URL: redis://localhost:6379/0
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
 
       - name: Run observability tests
         run: |
-          pytest tests/observability -q --junitxml=reports/observability.xml
+          pytest tests/observability -q --junitxml=reports/observability.xml 2>&1 | tee reports/observability-tests-output.txt
         env:
           REDIS_URL: redis://localhost:6379/0
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
 
       - name: Run e2e tests
         run: |
-          pytest tests/e2e -q --junitxml=reports/e2e.xml
+          pytest tests/e2e -q --junitxml=reports/e2e.xml 2>&1 | tee reports/e2e-tests-output.txt
         env:
           REDIS_URL: redis://localhost:6379/0
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
 
       - name: Run chaos tests
         run: |
-          pytest tests/chaos -q --junitxml=reports/chaos.xml
+          pytest tests/chaos -q --junitxml=reports/chaos.xml 2>&1 | tee reports/chaos-tests-output.txt
         env:
           REDIS_URL: redis://localhost:6379/0
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
@@ -146,6 +146,7 @@ jobs:
           name: pytest-output
           path: |
             reports/*.xml
+            reports/*.txt
             reports/*.err
             reports/*.out
           retention-days: 30
