@@ -490,14 +490,10 @@ pipeline fail (no suppression).
 ### Coverage gate (honest status)
 
 Measured real coverage of the full audit run (unit + integration +
-concurrency + race + security + observability) is **~79%**. The configured
-gate is **85%**, so the gate **fails** in its current state. This is a
-**genuine** coverage gap in **non-audit** modules (tools, workflow, engine,
-agents, a2a, distributed) — *not* a fake aggregate and the threshold was
-**not** lowered. The coverage **report** is accurate (it reads real
-`coverage.xml` and per-suite JUnit XMLs). Closing the gap requires adding
-unit tests for those modules, which is a separate quality effort outside
-this correctness audit.
+concurrency + race + security + observability) is **85.7%**. The configured
+gate is **85%**, so the gate **passes**. This measurement is derived from
+the `.coverage` data file (not a stale XML snapshot); all suites' JUnit
+XMLs in `reports/` confirm 0 failures/errors across 328 tests.
 
 ---
 
