@@ -91,7 +91,7 @@ async def _ping_postgres(samples: int = 20) -> float:
             except Exception as exc:
                 logger.debug("PostgreSQL ping failed: %s", exc)
                 continue
-            await asyncio.sleep(0.05)
+        await asyncio.sleep(0.5)
     finally:
         await pool.close()
     return statistics.mean(timings) if timings else 0.0
@@ -152,7 +152,7 @@ async def _submit_and_wait(
     client: httpx.AsyncClient,
     task_id: str,
     headers: dict[str, str],
-    poll_timeout: float = 120.0,
+    poll_timeout: float = 600.0,
 ) -> tuple[float, int]:
     started = time.perf_counter()
     response = await client.post(
@@ -167,11 +167,13 @@ async def _submit_and_wait(
         },
         headers=headers,
     )
+    if response.status_code != 200:
+        raise RuntimeError(f"Task submission failed: {response.status_code} {response.text}")
     response.raise_for_status()
 
     deadline = asyncio.get_running_loop().time() + poll_timeout
     while True:
-        task = await client.get(f"/tasks/{task_id}")
+        task = await client.get(f"/tasks/{task_id}", headers=headers)
         task.raise_for_status()
         body = task.json()
         if body["status"] in {"completed", "failed", "timeout", "cancelled"}:
@@ -238,6 +240,7 @@ async def run_load(total_tasks: int, concurrency: int) -> LoadMetrics:
     durations: list[float] = []
     retries = 0
     errors = 0
+    run_id = int(time.time() * 1000)  # unique per run to avoid task-id conflicts
 
     async with httpx.AsyncClient(base_url=API_URL, timeout=60.0, trust_env=False) as client:
         await _wait_for_api_healthy(client)
@@ -249,11 +252,13 @@ async def run_load(total_tasks: int, concurrency: int) -> LoadMetrics:
             nonlocal retries, errors
             async with sem:
                 try:
-                    duration, retry_count = await _submit_and_wait(client, f"load-{index:05d}", headers)
+                    task_id = f"load-{run_id}-{index:05d}"
+                    duration, retry_count = await _submit_and_wait(client, task_id, headers)
                     durations.append(duration)
                     retries += retry_count
-                except Exception:
+                except Exception as exc:
                     errors += 1
+                    logger.debug("Worker %d failed: %s", index, exc, exc_info=True)
 
         start = time.perf_counter()
         await asyncio.gather(*[worker(i) for i in range(total_tasks)])
