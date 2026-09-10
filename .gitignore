@@ -101,8 +101,5 @@ postgres_data/
 ~$*
 debug_raw*.py
 
-# Load test results
-load_test*.json
-
 # ML model cache (downloaded, large)
 models/

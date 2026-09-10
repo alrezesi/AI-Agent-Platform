@@ -1,0 +1,24 @@
+{
+  "timestamp": "2026-09-10T18:21:32.429663+00:00",
+  "tasks": 1000,
+  "concurrency": 100,
+  "metrics": {
+    "throughput": 1.214256412405059,
+    "p50": 6.0902140999996845,
+    "p95": 384.07067210000014,
+    "p99": 558.9247918000001,
+    "error_rate": 0.166,
+    "retry_rate": 0.001,
+    "queue_depth": 0,
+    "cpu": {
+      "agent_platform_worker_2": "4.67%",
+      "agent_platform_worker_1": "4.27%"
+    },
+    "memory": {
+      "agent_platform_worker_2": "1.23GiB / 4GiB",
+      "agent_platform_worker_1": "1.227GiB / 4GiB"
+    },
+    "redis_latency_ms": 1.8042649999870264,
+    "postgres_latency_ms": 2.8225950000660305
+  }
+}
