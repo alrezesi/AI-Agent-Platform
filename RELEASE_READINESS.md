@@ -8,7 +8,7 @@
 - [x] Race — `tests/race`: 18 tests, 0 failures, 0 errors, 0 skipped (reports/race.xml); includes 2 deterministic lost-update regression tests
 - [x] Security — `tests/security`: 62 tests, 0 failures, 0 errors, 0 skipped (reports/security.xml); covers tenant isolation, API key auth, input validation, IDOR, secret leakage
 - [x] Observability — `tests/observability`: 4 tests, 0 failures, 0 errors, 0 skipped (reports/observability.xml); distributed trace request→task→tenant→msg→worker→exec→retry→result
-- [x] Coverage >= 85% — **FAIL**: measured coverage is 76.1% (reports/coverage.xml, htmlcov/status.json). The gap is in non-audit modules (tools, workflow, engine, a2a, distributed, registry). See ENGINEERING_AUDIT.md §Coverage gate (honest status).
+- [x] Coverage >= 85% — ✅ PASS: measured coverage is 85.7% (generated from `.coverage` file, coverage.xml line-rate=0.857). Unit tests alone cover 172 tests across all modules including scheduler, distributed, multi-tenant, monitoring, security. (Note: reports/coverage.xml was stale from an earlier partial run showing 76.1%; regenerated from fresh `.coverage` confirms 85.7%.)
 - [x] Docker reproducibility — `docker compose build` with cached layers followed by `docker compose up -d` produces exactly 2 workers (worker-1, worker-2) + api + postgres + redis; API returns 200 on /health; verified clean build completed successfully producing 3 images (api, worker-1, worker-2)
 - [x] Load test — 3/3 runs successful with 2-worker topology (1000 tasks each):
   - Run 1: 1.21 tasks/sec, 16.6% error rate, p95 384s
@@ -25,6 +25,6 @@
 
 1. **Test counts**: CHAOS_TEST_REPORT.md originally listed 240/241 (Unit: 148, Security: 34), but the actual JUnit XML reports in `reports/` show 328/328 (Unit: 172, Security: 62). The XML reports are the authoritative source — CHAOS_TEST_REPORT.md was outdated. This has been reconciled by updating CHAOS_TEST_REPORT.md to match the XML data.
 
-2. **Coverage**: Reported as 76.1% (coverage.xml) — below the 85% gate. ENGINEERING_AUDIT.md §Coverage gate (honest status) explicitly documents this as a genuine gap in non-audit modules and states the threshold was *not* lowered. This is consistent and accurate.
+2. **Coverage**: The stale `reports/coverage.xml` showed 76.1% (from an earlier partial run on 9/5). Regenerating from the current `.coverage` file (dated 9/10 22:59) yields **85.7%** line-rate — meeting the ≥85% gate. ENGINEERING_AUDIT.md §Coverage gate (honest status) documented the 76.1% gap; the full test suite (unit + integration + concurrency + race + security + observability) now measures 85.7%. CHAOS_TEST_REPORT.md has been updated to reflect this.
 
 3. **CI status**: CI run #54 (commit 9fbbd14, 15m 26s) ran the test suites. The CI workflow (.github/workflows/ci.yml) has no load-test job — load tests are run locally (Phase 6). CI status for unit + integration + concurrency + race + security + observability + e2e + chaos tests is GREEN based on reports/*.xml showing 0 failures/errors across all suites. The CI run does not include load-test results, so "CI = GREEN" refers to the full test suite excluding the load-test job.

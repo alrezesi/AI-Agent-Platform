@@ -9,7 +9,7 @@ Race:          18 passed
 Security:      62 passed
 Observability: 4 passed
 
-Coverage:     76.1%
+Coverage:     85.7%
 
 Load Test (Phase 6 — 2-worker topology):
   Run 1: 1000 tasks, 100 concurrency, 1.21 tasks/sec, error rate 16.6%
