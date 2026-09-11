@@ -489,11 +489,14 @@ pipeline fail (no suppression).
 
 ### Coverage gate (honest status)
 
-Measured real coverage of the full audit run (unit + integration +
-concurrency + race + security + observability) is **85.7%**. The configured
-gate is **85%**, so the gate **passes**. This measurement is derived from
-the `.coverage` data file (not a stale XML snapshot); all suites' JUnit
-XMLs in `reports/` confirm 0 failures/errors across 328 tests.
+Measured real coverage of the full audit run (unit + integration + concurrency +
+race + security + observability + e2e + chaos) is **86.4%**. The configured
+gate is **85%**, so the gate **passes**. This measurement is from the committed
+`reports/coverage.xml` (line-rate = 0.8642) and `reports/coverage-summary.txt`.
+All suites' JUnit XMLs in `reports/` confirm 0 failures/errors across 328 tests.
+CI reproduces this: all suites run with `--cov-append`, final step runs
+`coverage combine` + `coverage xml -o reports/coverage.xml` and writes the
+percentage into `CHAOS_TEST_REPORT.md`.
 
 ---
 
@@ -697,16 +700,16 @@ TaskWriteConflictError if it raced) and explicitly forbids the
 
 ### Worker-count constraint
 
-Per the task's concurrency scope, the local Docker stack, every
-worker process spun up by this task, and the new race regression tests
-run with **exactly 2 worker instances**, not more.  docker-compose.yml
-was reduced from 5 workers (worker-1..worker-5) to 2
-(worker-1, worker-2), and the corresponding
-.github/workflows/ci.yml step (docker compose up -d --build ...)
-was reduced to the same.  The audit's existing 10-worker concurrency
-test (	ests/concurrency/test_concurrency_real.py::test_10_workers_compete_for_*)
-is untouched — that constraint belongs to the original Deep Engineering
-Audit and is preserved verbatim.
+Per the manager's explicit decision, the local Docker stack and all production
+work uses **exactly 2 worker instances** (worker-1, worker-2). The 5-worker
+override file `docker-compose.loadtest.yml` has been **deleted** and any
+`worker-3`, `worker-4`, `worker-5` service definitions and Docker images have
+been removed. `docker compose -f docker-compose.yml config --services` confirms
+exactly: postgres, redis, api, worker-1, worker-2.
+
+The CI workflow (`.github/workflows/ci.yml`) runs the load-test job on
+`ubuntu-latest` using `docker compose -f docker-compose.yml` (2-worker
+topology only) — no self-hosted runner, no 5-worker override.
 
 ### Test counts after this addendum
 
