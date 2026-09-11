@@ -59,7 +59,7 @@ jobs:
 
       - name: Run unit tests
         run: |
-          pytest tests/unit -q --junitxml=reports/unit.xml --cov=src/agent_platform --cov-report=xml:coverage.xml --cov-report=html:htmlcov --tb=short 2>&1 | tee reports/unit-tests-output.txt
+          pytest tests/unit -q --junitxml=reports/unit.xml --cov=src/agent_platform --cov-append --cov-report=term-missing 2>&1 | tee reports/unit-tests-output.txt
         env:
           REDIS_URL: redis://localhost:6379/0
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
