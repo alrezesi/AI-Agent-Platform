@@ -1,24 +1,24 @@
 {
-  "timestamp": "2026-09-10T18:35:40.653897+00:00",
-  "tasks": 1000,
-  "concurrency": 100,
+  "timestamp": "2026-09-11T10:45:22.942568+00:00",
+  "tasks": 10000,
+  "concurrency": 500,
   "metrics": {
-    "throughput": 1.2412724722083186,
-    "p50": 6.2754823999998735,
-    "p95": 361.0594152999997,
-    "p99": 575.1739036999998,
-    "error_rate": 0.027,
+    "throughput": 2.2224300752913377,
+    "p50": 92.0836141999971,
+    "p95": 275.9186561000024,
+    "p99": 555.0986661999996,
+    "error_rate": 0.1629,
     "retry_rate": 0.0,
-    "queue_depth": 0,
+    "queue_depth": 854,
     "cpu": {
-      "agent_platform_worker_2": "4.52%",
-      "agent_platform_worker_1": "4.39%"
+      "agent_platform_worker_1": "96.68%",
+      "agent_platform_worker_2": "92.60%"
     },
     "memory": {
-      "agent_platform_worker_2": "1.25GiB / 4GiB",
-      "agent_platform_worker_1": "1.246GiB / 4GiB"
+      "agent_platform_worker_1": "1.304GiB / 4GiB",
+      "agent_platform_worker_2": "1.307GiB / 4GiB"
     },
-    "redis_latency_ms": 1.7779499999505788,
-    "postgres_latency_ms": 2.961284999992131
+    "redis_latency_ms": 4.221205000430928,
+    "postgres_latency_ms": 4.401580000921967
   }
 }
