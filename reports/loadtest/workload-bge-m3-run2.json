@@ -1,0 +1,29 @@
+{
+  "timestamp": "2026-09-12T17:06:58.419479+00:00",
+  "benchmark": "bge-m3",
+  "tasks": 50,
+  "concurrency": 5,
+  "metrics": {
+    "throughput": 1.265746449083996,
+    "p50": 3.4422354999987874,
+    "p95": 5.73347969999304,
+    "p99": 5.881859700006316,
+    "submitted": 50,
+    "completed": 50,
+    "successful": 50,
+    "failed": 0,
+    "timeout": 0,
+    "pending": 0,
+    "running": 0,
+    "queue_remaining": 0,
+    "drain_time": 10.012061399989761,
+    "success_rate": 100.0,
+    "failure_rate": 0.0,
+    "retry_rate": 0.0,
+    "cpu": {},
+    "memory": {},
+    "redis_latency_ms": 1.8579099989437964,
+    "postgres_latency_ms": 2.202799998485716,
+    "outcome": "PASS"
+  }
+}

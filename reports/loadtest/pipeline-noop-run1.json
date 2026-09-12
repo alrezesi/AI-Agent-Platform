@@ -1,0 +1,29 @@
+{
+  "timestamp": "2026-09-12T16:39:44.540554+00:00",
+  "benchmark": "noop",
+  "tasks": 500,
+  "concurrency": 500,
+  "metrics": {
+    "throughput": 6.109259402732359,
+    "p50": 78.90638949999993,
+    "p95": 81.43444260000251,
+    "p99": 81.48101670001051,
+    "submitted": 500,
+    "completed": 500,
+    "successful": 500,
+    "failed": 0,
+    "timeout": 0,
+    "pending": 0,
+    "running": 0,
+    "queue_remaining": 0,
+    "drain_time": 9.997227700005169,
+    "success_rate": 100.0,
+    "failure_rate": 0.0,
+    "retry_rate": 0.0,
+    "cpu": {},
+    "memory": {},
+    "redis_latency_ms": 1.9025700021302328,
+    "postgres_latency_ms": 3.3168700014357455,
+    "outcome": "PASS"
+  }
+}
