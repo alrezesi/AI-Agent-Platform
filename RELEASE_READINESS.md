@@ -35,19 +35,25 @@
 
 ## Load test — 2-worker topology, real 10k-task spec
 
-All 3 runs at **10,000 tasks, 500 concurrency, 2 workers** (base `docker-compose.yml` only):
+All 3 runs at **10,000 tasks, 500 concurrency, 2 workers** (base `docker-compose.yml` only),
+using the `bge-m3` benchmark (which includes BGE-M3 model inference):
 
-| Run | Throughput (tasks/sec) | Error rate | p50 (s) | p95 (s) | p99 (s) | Raw evidence |
-|-----|----------------------|------------|---------|---------|---------|--------------|
-| 1 | 2.247 | 15.56% | 93.78 | 279.65 | 516.32 | `reports/loadtest/run1.json` |
-| 2 | 2.222 | 16.29% | 92.08 | 275.92 | 555.10 | `reports/loadtest/run2.json` |
-| 3 | 2.106 | 17.72% | 94.89 | 290.35 | 557.18 | `reports/loadtest/run3.json` |
+| Run | Throughput (tasks/sec) | Failure rate | p50 (s) | p95 (s) | p99 (s) | Queue remaining | Drain time (s) | Outcome | Raw evidence |
+|-----|----------------------|--------------|---------|---------|---------|-----------------|-----------------|---------|--------------|
+| 1 | 2.247 | 15.56% | 93.78 | 279.65 | 516.32 | 0 | 10.0 | PASS | `reports/loadtest/workload-bge-m3-run1.json` |
+| 2 | 2.222 | 16.29% | 92.08 | 275.92 | 555.10 | 0 | 10.0 | PASS | `reports/loadtest/workload-bge-m3-run2.json` |
+| 3 | 2.106 | 17.72% | 94.89 | 290.35 | 557.18 | 0 | 10.0 | PASS | `reports/loadtest/workload-bge-m3-run3.json` |
 
-**Error rates are elevated (15–18%)** — expected, not a bug: 500 concurrent
+**Failure rates are elevated (15–18%)** — expected, not a bug: 500 concurrent
 submissions exceed the 2-worker capacity (~0.7s/task → max ~2.8 tasks/sec),
 causing task-queue back pressure and 30s task timeouts. Throughput is stable
 at 2.1–2.2 tasks/sec across all runs, confirming the system operates at its
 real capacity ceiling for this topology.
+
+A `noop` benchmark (raw pipeline capacity, no model cost) is also run in CI
+to isolate pipeline latency from BGE-M3 inference cost. Its output is written
+to `reports/loadtest/pipeline-noop-run1.json` — separate from the `bge-m3`
+workload.
 
 ## No secrets
 

@@ -1,34 +1,93 @@
 name: CI
 
+# ===========================================================================
+# CI Workflow — AI-Agent-Platform
+#
+# Design decisions (see ENGINEERING_AUDIT.md for full traceability):
+#
+#   1.  Job-level env vars (POSTGRES_URL, REDIS_HOST_PORT, DATABASE_URL)
+#       are the single source of truth — no step can forget to set them.
+#       (Addendum 5 fix: previously the Unit-tests step lacked POSTGRES_URL
+#       and defaulted to a wrong local-dev port 5433.)
+#
+#   2.  Services postgres uses POSTGRES_USER=agent / POSTGRES_DB=agent_platform
+#       so the real FastAPI app and the e2e/chaos pytest suites (which boot a
+#       real app instance via TestClient against DATABASE_URL) see the correct
+#       schema.  The isolated test DB agent_platform_test is auto-created by
+#       tests/conftest.py::ensure_test_db.
+#
+#   3.  The redis healthcheck uses REDIS_HOST_PORT (default 18379) so compose's
+#       Redis never collides with the CI service Redis on 6379.
+#       (Addendum 6 fix.)
+#
+#   4.  Coverage is accumulated with --cov-append across all test suites,
+#       then combined with `coverage combine` and exported to
+#       reports/coverage.xml for report_coverage.py.
+#
+#   5.  The --cov-fail-under=85 gate on every pytest step fails the job if
+#       cumulative coverage drops below 85 %.
+#
+#   6.  report_coverage.py replaces the inline JavaScript-style string-built
+#       report that previously hardcoded "Status: PASS".  It computes PASS
+#       only when coverage >= 85 AND every JUnit suite has zero failures.
+#
+#   7.  The load-test job has NO if: always() — it only runs when the test
+#       job passes.  (Previously load-test ran unconditionally, masking test
+#       failures behind a green load-test result.)
+#
+#   8.  The load-test job runs both the bge-m3 and the noop benchmark.
+#       noop measures raw pipeline capacity (no model cost), producing
+#       separate output files per benchmark.
+#
+#   9.  The release-gate job is the final gate: it downloads all artifacts
+#       from test + load-test and runs report_coverage.py one last time with
+#       full data (JUnit + coverage + load-test JSON).  It must pass for the
+#       pipeline to be green.
+# ===========================================================================
+
 on:
   push:
     branches: [ master ]
   pull_request:
     branches: [ master ]
 
+# ---------------------------------------------------------------------------
+# Job-level environment — shared by every step that needs it.
+# (Addendum 5: single source of truth for POSTGRES_URL / DATABASE_URL.)
+# ---------------------------------------------------------------------------
+env:
+  DATABASE_URL: postgresql+asyncpg://agent:agent123@localhost:5432/agent_platform
+  POSTGRES_URL: postgresql+asyncpg://agent:agent123@localhost:5432/agent_platform_test
+  REDIS_HOST_PORT: 18379
+
 jobs:
+  # =========================================================================
+  # TEST JOB — unit, integration, concurrency, race, security, observability,
+  # e2e, chaos.  Accumulates coverage across all suites.
+  # =========================================================================
   test:
     runs-on: ubuntu-latest
     services:
       redis:
         image: redis:7-alpine
         ports:
-          - 6379:6379
+          - ${{ env.REDIS_HOST_PORT }}:6379
         options: >-
-          --health-cmd "redis-cli ping"
+          --health-cmd "redis-cli -p \${{ env.REDIS_HOST_PORT }} ping"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
       postgres:
-        image: postgres:15-alpine
+        image: postgres:16-alpine
         ports:
           - 5432:5432
         env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: agent_platform_test
+          POSTGRES_USER: agent
+          POSTGRES_PASSWORD: agent123
+          POSTGRES_DB: agent_platform
+          POSTGRES_HOST_AUTH_METHOD: trust
         options: >-
-          --health-cmd "pg_isready -U test -d agent_platform_test"
+          --health-cmd "pg_isready -U agent -d agent_platform"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -48,7 +107,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libpq-dev postgresql-client redis-tools
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
@@ -57,136 +116,85 @@ jobs:
         run: |
           python scripts/wait_for_services.py
 
+      - name: Run database migrations
+        run: |
+          # Migrate the real agent_platform DB so e2e/chaos tests that boot a
+          # real TestClient against DATABASE_URL see the full schema.
+          # (Addendum 7 fix: previously this DB was never migrated in CI.)
+          alembic -c alembic.ini upgrade head
+
+      - name: Ensure isolated test DB exists
+        run: |
+          # ensure_test_db in conftest.py auto-creates agent_platform_test,
+          # but we call it early so the first test step doesn't race.
+          python -c "import asyncio; from tests.conftest import _ensure_database_exists, POSTGRES_URL; asyncio.run(_ensure_database_exists(POSTGRES_URL))"
+
       - name: Run unit tests
         run: |
-          pytest tests/unit -q --junitxml=reports/unit.xml --cov=src/agent_platform --cov-append --cov-report=term-missing 2>&1 | tee reports/unit-tests-output.txt
+          mkdir -p reports
+          pytest tests/unit -q --junitxml=reports/unit.xml \
+            --cov=src/agent_platform --cov-append --cov-report=term-missing \
+            --cov-fail-under=85 2>&1 | tee reports/unit-tests-output.txt
         env:
-          REDIS_URL: redis://localhost:6379/0
-          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
+          REDIS_URL: redis://localhost:${{ env.REDIS_HOST_PORT }}/0
 
       - name: Run integration tests
         run: |
-          pytest tests/integration -q --junitxml=reports/integration.xml --cov=src/agent_platform --cov-append --cov-report=term-missing 2>&1 | tee reports/integration-tests-output.txt
+          pytest tests/integration -q --junitxml=reports/integration.xml \
+            --cov-append --cov-report=term-missing --cov-fail-under=85 2>&1 | tee reports/integration-tests-output.txt
         env:
-          REDIS_URL: redis://localhost:6379/0
-          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
+          REDIS_URL: redis://localhost:${{ env.REDIS_HOST_PORT }}/0
 
       - name: Run concurrency tests
         run: |
-          pytest tests/concurrency -q --junitxml=reports/concurrency.xml --cov=src/agent_platform --cov-append --cov-report=term-missing 2>&1 | tee reports/concurrency-tests-output.txt
+          pytest tests/concurrency -q --junitxml=reports/concurrency.xml \
+            --cov-append --cov-report=term-missing --cov-fail-under=85 2>&1 | tee reports/concurrency-tests-output.txt
         env:
-          REDIS_URL: redis://localhost:6379/0
-          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
+          REDIS_URL: redis://localhost:${{ env.REDIS_HOST_PORT }}/0
 
       - name: Run race tests
         run: |
-          pytest tests/race -q --junitxml=reports/race.xml --cov=src/agent_platform --cov-append --cov-report=term-missing 2>&1 | tee reports/race-tests-output.txt
+          pytest tests/race -q --junitxml=reports/race.xml \
+            --cov-append --cov-report=term-missing --cov-fail-under=85 2>&1 | tee reports/race-tests-output.txt
         env:
-          REDIS_URL: redis://localhost:6379/0
-          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
+          REDIS_URL: redis://localhost:${{ env.REDIS_HOST_PORT }}/0
 
       - name: Run security tests
         run: |
-          pytest tests/security -q --junitxml=reports/security.xml --cov=src/agent_platform --cov-append --cov-report=term-missing 2>&1 | tee reports/security-tests-output.txt
+          pytest tests/security -q --junitxml=reports/security.xml \
+            --cov-append --cov-report=term-missing --cov-fail-under=85 2>&1 | tee reports/security-tests-output.txt
         env:
-          REDIS_URL: redis://localhost:6379/0
-          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
+          REDIS_URL: redis://localhost:${{ env.REDIS_HOST_PORT }}/0
 
       - name: Run observability tests
         run: |
-          pytest tests/observability -q --junitxml=reports/observability.xml --cov=src/agent_platform --cov-append --cov-report=term-missing 2>&1 | tee reports/observability-tests-output.txt
+          pytest tests/observability -q --junitxml=reports/observability.xml \
+            --cov-append --cov-report=term-missing --cov-fail-under=85 2>&1 | tee reports/observability-tests-output.txt
         env:
-          REDIS_URL: redis://localhost:6379/0
-          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
+          REDIS_URL: redis://localhost:${{ env.REDIS_HOST_PORT }}/0
 
       - name: Run e2e tests
         run: |
-          pytest tests/e2e -q --junitxml=reports/e2e.xml --cov=src/agent_platform --cov-append --cov-report=term-missing 2>&1 | tee reports/e2e-tests-output.txt
+          pytest tests/e2e -q --junitxml=reports/e2e.xml \
+            --cov-append --cov-report=term-missing --cov-fail-under=85 2>&1 | tee reports/e2e-tests-output.txt
         env:
-          REDIS_URL: redis://localhost:6379/0
-          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
+          REDIS_URL: redis://localhost:${{ env.REDIS_HOST_PORT }}/0
 
       - name: Run chaos tests
         run: |
-          pytest tests/chaos -q --junitxml=reports/chaos.xml --cov=src/agent_platform --cov-append --cov-report=term-missing 2>&1 | tee reports/chaos-tests-output.txt
+          pytest tests/chaos -q --junitxml=reports/chaos.xml \
+            --cov-append --cov-report=term-missing --cov-fail-under=85 2>&1 | tee reports/chaos-tests-output.txt
         env:
-          REDIS_URL: redis://localhost:6379/0
-          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/agent_platform_test
+          REDIS_URL: redis://localhost:${{ env.REDIS_HOST_PORT }}/0
 
-      - name: Generate combined coverage report
+      - name: Combine coverage and generate XML
         run: |
           coverage combine
           coverage xml -o reports/coverage.xml
           coverage report > reports/coverage-summary.txt 2>&1
-          COVERAGE_PCT=$(python -c "import xml.etree.ElementTree as ET; tree = ET.parse('reports/coverage.xml'); root = tree.getroot(); print(f'{float(root.get(\"line-rate\", 0)) * 100:.1f}')")
-          echo "Combined Coverage: ${COVERAGE_PCT}%"
-          python -c "
-import xml.etree.ElementTree as ET
-import os, re
-
-# Parse all JUnit XML files and count tests
-test_counts = {}
-total_tests = 0
-for suite_name, xml_file in [
-    ('Unit', 'reports/unit.xml'),
-    ('Integration', 'reports/integration.xml'),
-    ('Concurrency', 'reports/concurrency.xml'),
-    ('Race', 'reports/race.xml'),
-    ('Security', 'reports/security.xml'),
-    ('Observability', 'reports/observability.xml'),
-    ('E2E', 'reports/e2e.xml'),
-    ('Chaos', 'reports/chaos.xml'),
-]:
-    if os.path.exists(xml_file):
-        tree = ET.parse(xml_file)
-        root = tree.getroot()
-        ts = root.find('.//testsuite')
-        if ts is not None:
-            tests = int(ts.get('tests', 0))
-            failures = int(ts.get('failures', 0))
-            errors = int(ts.get('errors', 0))
-            skipped = int(ts.get('skipped', 0))
-            passed = tests - failures - errors - skipped
-            test_counts[suite_name] = {'passed': passed, 'total': tests}
-            total_tests += tests
-        else:
-            test_counts[suite_name] = {'passed': 0, 'total': 0}
-    else:
-        test_counts[suite_name] = {'passed': 0, 'total': 0}
-
-# Parse coverage
-tree = ET.parse('reports/coverage.xml')
-root = tree.getroot()
-line_rate = float(root.get('line-rate', 0))
-coverage_pct = f'{line_rate * 100:.1f}'
-
-# Read coverage summary for full report
-coverage_full = open('reports/coverage-summary.txt').read()
-
-# Extract key lines
-lines = []
-lines.append('Test Summary')
-lines.append('=' * 50)
-for suite, counts in test_counts.items():
-    lines.append(f'{suite}:          {counts[\"passed\"]}/{counts[\"total\"]} passed')
-lines.append('')
-lines.append(f'Coverage (combined, full audit suite): {coverage_pct}%')
-lines.append('')
-lines.append('Coverage Detail:')
-lines.append(coverage_full)
-lines.append('')
-lines.append(f'Total tests:  {total_tests}/{total_tests} passed')
-lines.append('Status:       PASS')
-
-report = '\n'.join(lines)
-with open('CHAOS_TEST_REPORT.md', 'w') as f:
-    f.write(report)
-print('CHAOS_TEST_REPORT.md updated with coverage:', coverage_pct + '%')
-print(report)
-"
 
       - name: Upload coverage reports
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-reports
@@ -197,7 +205,7 @@ print(report)
           retention-days: 30
 
       - name: Upload JUnit test reports
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: junit-reports
@@ -212,21 +220,40 @@ print(report)
             reports/chaos.xml
           retention-days: 30
 
-      - name: Upload pytest output
-        if: always()
+      - name: Upload pytest output logs
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: pytest-output
           path: |
-            reports/*.xml
             reports/*.txt
           retention-days: 30
           if-no-files-found: ignore
 
+  # =========================================================================
+  # LOAD-TEST JOB — starts the real Docker stack and runs the chaos load
+  # test with both bge-m3 and noop benchmarks.
+  #
+  # Key changes from the original ci.yml:
+  #   • No if: always() — only runs when `test` passes.
+  #   • BGE_MODEL_DTYPE=float16 (CI-only, Addendum 9) to fit host memory.
+  #   • BGE_MAX_SEQ_LENGTH=128 (Addendum 10) to reduce per-worker RAM.
+  #   • Two benchmarks: bge-m3 (3 runs) and noop (1 run).
+  #   • Summary uses failure_rate (not the stale error_rate) and reads the
+  #     new metrics schema fields (submitted, completed, successful, failed,
+  #     timeout, pending, running, queue_remaining, drain_time, p50, p95, p99).
+  # =========================================================================
   load-test:
     needs: test
-    if: always()
     runs-on: ubuntu-latest
+    # CI-only memory optimization: load BGE-M3 in float16 (~1 GB/worker vs
+    # ~2 GB/worker in fp32) to stay within the 7 GB ubuntu-latest runner.
+    # Local dev and production default to float32 (no behavior change).
+    env:
+      BGE_MODEL_DTYPE: float16
+      BGE_MAX_SEQ_LENGTH: 128
+      REDIS_HOST_PORT: 18379
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -243,6 +270,7 @@ print(report)
           pip install httpx redis asyncpg psycopg2-binary
 
       - name: Start Docker stack (2-worker topology from base compose)
+        timeout-minutes: 8
         run: |
           docker compose -f docker-compose.yml up -d --build
           docker compose -f docker-compose.yml ps
@@ -251,74 +279,64 @@ print(report)
         run: |
           python scripts/wait_for_services.py
 
-      - name: Run load test (Run 1 — 10,000 tasks, 500 concurrency, 2 workers)
+      # --- bge-m3 benchmark: 3 runs at 10k tasks / 500 concurrency ---
+
+      - name: Run load test - bge-m3 (Run 1, 10k tasks, 500 concurrency)
         timeout-minutes: 30
         run: |
-          echo "Starting load test run 1..."
+          echo "Starting bge-m3 load test run 1..."
           DATABASE_URL="postgresql+asyncpg://agent:agent123@localhost:5433/agent_platform" \
-          REDIS_URL="redis://localhost:6379/1" \
-          python scripts/chaos_load_test.py --tasks 10000 --concurrency 500 --output reports/loadtest/run1.json 2>&1 | tee reports/loadtest-run1.log
+          REDIS_URL="redis://localhost:${{ env.REDIS_HOST_PORT }}/1" \
+          python scripts/chaos_load_test.py --tasks 10000 --concurrency 500 --benchmark bge-m3 --run-number 1 \
+            2>&1 | tee reports/loadtest-run1.log
 
-      - name: Clean data for Run 2
+      - name: Clean data for bge-m3 Run 2
         run: |
           docker compose exec -T redis redis-cli -n 1 FLUSHDB
           docker compose exec -T postgres psql -U agent -d agent_platform -c "DELETE FROM tasks;"
 
-      - name: Run load test (Run 2 — 10,000 tasks, 500 concurrency, 2 workers)
+      - name: Run load test - bge-m3 (Run 2, 10k tasks, 500 concurrency)
         timeout-minutes: 30
         run: |
-          echo "Starting load test run 2..."
+          echo "Starting bge-m3 load test run 2..."
           DATABASE_URL="postgresql+asyncpg://agent:agent123@localhost:5433/agent_platform" \
-          REDIS_URL="redis://localhost:6379/1" \
-          python scripts/chaos_load_test.py --tasks 10000 --concurrency 500 --output reports/loadtest/run2.json 2>&1 | tee reports/loadtest-run2.log
+          REDIS_URL="redis://localhost:${{ env.REDIS_HOST_PORT }}/1" \
+          python scripts/chaos_load_test.py --tasks 10000 --concurrency 500 --benchmark bge-m3 --run-number 2 \
+            2>&1 | tee reports/loadtest-run2.log
 
-      - name: Clean data for Run 3
+      - name: Clean data for bge-m3 Run 3
         run: |
           docker compose exec -T redis redis-cli -n 1 FLUSHDB
           docker compose exec -T postgres psql -U agent -d agent_platform -c "DELETE FROM tasks;"
 
-      - name: Run load test (Run 3 — 10,000 tasks, 500 concurrency, 2 workers)
+      - name: Run load test - bge-m3 (Run 3, 10k tasks, 500 concurrency)
         timeout-minutes: 30
         run: |
-          echo "Starting load test run 3..."
+          echo "Starting bge-m3 load test run 3..."
           DATABASE_URL="postgresql+asyncpg://agent:agent123@localhost:5433/agent_platform" \
-          REDIS_URL="redis://localhost:6379/1" \
-          python scripts/chaos_load_test.py --tasks 10000 --concurrency 500 --output reports/loadtest/run3.json 2>&1 | tee reports/loadtest-run3.log
+          REDIS_URL="redis://localhost:${{ env.REDIS_HOST_PORT }}/1" \
+          python scripts/chaos_load_test.py --tasks 10000 --concurrency 500 --benchmark bge-m3 --run-number 3 \
+            2>&1 | tee reports/loadtest-run3.log
+
+      # --- noop benchmark: 1 run (measures raw pipeline capacity, no model cost) ---
+
+      - name: Clean data for noop benchmark
+        run: |
+          docker compose exec -T redis redis-cli -n 1 FLUSHDB
+          docker compose exec -T postgres psql -U agent -d agent_platform -c "DELETE FROM tasks;"
+
+      - name: Run load test - noop (10k tasks, 500 concurrency, no model cost)
+        timeout-minutes: 15
+        run: |
+          echo "Starting noop load test run..."
+          DATABASE_URL="postgresql+asyncpg://agent:agent123@localhost:5433/agent_platform" \
+          REDIS_URL="redis://localhost:${{ env.REDIS_HOST_PORT }}/1" \
+          python scripts/chaos_load_test.py --tasks 10000 --concurrency 500 --benchmark noop --run-number 1 \
+            2>&1 | tee reports/loadtest-noop-run1.log
 
       - name: Generate load test summary
         run: |
-          python -c "
-import json, os
-runs = []
-for name in ['run1', 'run2', 'run3']:
-    path = f'reports/loadtest/{name}.json'
-    if os.path.exists(path):
-        with open(path) as f:
-            data = json.load(f)
-        m = data['metrics']
-        runs.append({
-            'run': name,
-            'tasks': data['tasks'],
-            'concurrency': data['concurrency'],
-            'throughput': m['throughput'],
-            'error_rate': m['error_rate'],
-            'p50': m['p50'],
-            'p95': m['p95'],
-            'p99': m['p99']
-        })
-summary = {'runs': runs, 'total_runs': len(runs), 'all_passed': all(r['error_rate'] < 1.0 for r in runs)}
-with open('reports/loadtest/summary.json', 'w') as f:
-    json.dump(summary, f, indent=2)
-print(json.dumps(summary, indent=2))
-"
-
-      - name: Commit load test results
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add reports/loadtest/
-          git commit -m "CI: load test results (10,000 tasks / 500 concurrency / 2 workers)" --allow-empty
-          git push
+          python scripts/load_test_summary.py
 
       - name: Upload load test results
         if: always()
@@ -335,3 +353,86 @@ print(json.dumps(summary, indent=2))
         if: always()
         run: |
           docker compose -f docker-compose.yml down --rmi all -v
+
+  # =========================================================================
+  # RELEASE-GATE JOB — final verification gate.
+  #
+  # Downloads all artifacts from test + load-test and runs report_coverage.py
+  # with complete data (JUnit XMLs + coverage.xml + load-test JSON).
+  # The script exits non-zero (FAIL) if coverage < 85% OR any JUnit suite
+  # has failures/errors.  This job must pass for the pipeline to be green.
+  # =========================================================================
+  release-gate:
+    needs: [test, load-test]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Download coverage reports
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-reports
+          path: reports/coverage-reports
+
+      - name: Download JUnit reports
+        uses: actions/download-artifact@v4
+        with:
+          name: junit-reports
+          path: reports/junit-reports
+
+      - name: Download load test results
+        uses: actions/download-artifact@v4
+        with:
+          name: loadtest-results
+          path: reports/loadtest
+
+      - name: Download pytest output logs
+        uses: actions/download-artifact@v4
+        with:
+          name: pytest-output
+          path: reports/pytest-output
+
+      - name: Final coverage gate — report_coverage.py
+        run: |
+          echo "=== Final Coverage Gate ==="
+          echo "This step runs report_coverage.py with ALL data (JUnit + coverage + load-test JSON)."
+          echo "It exits non-zero (FAIL) if:"
+          echo "  - coverage < 85%"
+          echo "  - ANY JUnit suite has failures or errors"
+          echo ""
+          python scripts/report_coverage.py \
+            --minimum 85 \
+            --coverage-xml reports/coverage-reports/coverage.xml \
+            --coverage-detail reports/coverage-reports/coverage-summary.txt \
+            --unit-junit reports/junit-reports/unit.xml \
+            --integration-junit reports/junit-reports/integration.xml \
+            --e2e-junit reports/junit-reports/e2e.xml \
+            --chaos-junit reports/junit-reports/chaos.xml \
+            --concurrency-junit reports/junit-reports/concurrency.xml \
+            --race-junit reports/junit-reports/race.xml \
+            --security-junit reports/junit-reports/security.xml \
+            --observability-junit reports/junit-reports/observability.xml \
+            --load-json reports/loadtest/workload-bge-m3-run1.json \
+            --output CHAOS_TEST_REPORT.md
+
+      - name: Upload final report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-report
+          path: |
+            CHAOS_TEST_REPORT.md
+          retention-days: 30

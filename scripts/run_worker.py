@@ -12,6 +12,7 @@ from src.agent_platform.distributed.registry import DistributedRegistry
 from src.agent_platform.distributed.worker import WorkerConfig, WorkerNode
 from src.agent_platform.scheduler.redis_queue import RedisTaskQueue
 from src.agents.bge_m3_agent import BGEM3Agent
+from src.agent_platform.agents.simple import SimpleTaskAgent
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -70,6 +71,8 @@ class RuntimeAgentRegistry:
     def _build_capabilities(agent: BaseAgent):
         if agent.agent_id == "bge-m3":
             return [AgentCapability(name="embedding", description="Generate BGE-M3 text embeddings")]
+        if agent.agent_id == "noop":
+            return [AgentCapability(name="noop", description="Trivial echo agent for raw pipeline-baseline measurement")]
         return []
 
 
@@ -87,6 +90,18 @@ def validate_local_model_path(label: str, env_var: str) -> str:
 
 
 async def initialize_agents() -> list[BaseAgent]:
+    """
+    Initialize all agents available to this worker.
+
+    Two agents are registered:
+    - ``bge-m3``: BGE-M3 embedding model (heavy, requires model file).
+    - ``noop``: trivial echo agent (no model, measures raw pipeline capacity).
+
+    The noop agent enables the pipeline-noop benchmark in
+    ``chaos_load_test.py`` to measure API→Queue→Scheduler→Worker→DB
+    throughput without model-inference cost, kept in a separate output
+    file from the bge-m3 workload benchmark.
+    """
     tenant_id = os.getenv("AGENT_TENANT_ID", "dummy")
     bge_model_path = validate_local_model_path("BGE-M3", "BGE_MODEL_PATH")
 
@@ -97,6 +112,11 @@ async def initialize_agents() -> list[BaseAgent]:
             tenant_id=tenant_id,
             model_path=bge_model_path,
             device=os.getenv("BGE_DEVICE", "cpu"),
+        ),
+        SimpleTaskAgent(
+            agent_id="noop",
+            name="Noop",
+            tenant_id=tenant_id,
         ),
     ]
 

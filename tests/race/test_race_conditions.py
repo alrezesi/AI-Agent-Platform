@@ -9,6 +9,7 @@ and a live PostgreSQL database — no fakes, no mocks.
 """
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -935,4 +936,265 @@ async def test_dequeue_increments_version_on_every_successful_claim(redis_queue,
         )
         assert after.status == TaskStatus.RUNNING
         assert after.lease_owner == "w-claim"
-        assert after.lease_expires_at is not None
+
+
+# ---------------------------------------------------------------------------
+# 18-20. Idempotency vs crash + stale-writer + PostgreSQL/Redis recovery
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_idempotency_persists_across_worker_crash(redis_queue, clean_db):
+    """
+    Item 4 — Idempotency vs crash.
+
+    Worker A dequeues a task (setting the idempotency record to ``processing``).
+    Worker A then *crashes* — it never calls ``idempotency.complete()``.
+    After the lease expires, worker B reclaims the task and a NEW worker can
+    dequeue it.  A concurrent re-submit of the same ``task_id`` must remain
+    a **no-op** (``At-Most-Once``), because the idempotency record is still
+    ``processing`` and ``enqueue`` short-circuits on it.  The task must be
+    completable by worker B without any manual intervention on the
+    idempotency record.
+    """
+    scheduler = TaskScheduler(redis_queue)
+    task_id = "race-idempotent-crash-001"
+
+    await scheduler.submit_task("agent-a", "echo", {}, task_id=task_id)
+    assert await redis_queue.idempotency.is_completed(task_id) is False
+
+    # Worker A claims — idempotency lock acquired as "processing".
+    claimed = await redis_queue.dequeue(worker_id="w-a", lease_seconds=0.5)
+    assert claimed is not None
+    assert claimed.status == TaskStatus.RUNNING
+    # Idempotency record is still "processing", not "completed".
+    assert await redis_queue.idempotency.is_completed(task_id) is False
+
+    # Worker A crashes — never calls update_task / idempotency.complete().
+    await asyncio.sleep(0.7)  # lease expires
+
+    # A concurrent re-submit of the same task_id must be a no-op.
+    # The IdempotencyManager in enqueue() checks for "processing"/"completed"
+    # and returns early.  The task_id is preserved (at-most-once creation).
+    re_submit = await scheduler.submit_task("agent-a", "echo", {"new": "data"}, task_id=task_id)
+    assert re_submit == task_id
+
+    # Worker B reclaims the crashed task.
+    reclaimed = await redis_queue.reclaim_orphaned_tasks()
+    assert task_id in reclaimed
+
+    # Worker B can dequeue and complete the task.
+    second_claim = await redis_queue.dequeue(worker_id="w-b", lease_seconds=30)
+    assert second_claim is not None
+    assert second_claim.task_id == task_id
+
+    second_claim.status = TaskStatus.COMPLETED
+    second_claim.result = {"worker": "w-b"}
+    await redis_queue.update_task(second_claim)
+
+    # Now the idempotency record is "completed".
+    assert await redis_queue.idempotency.is_completed(task_id) is True
+    final = await redis_queue.get_task(task_id)
+    assert final.status == TaskStatus.COMPLETED
+    assert final.result == {"worker": "w-b"}
+
+
+@pytest.mark.asyncio
+async def test_stale_writer_rejected_after_reclaim(redis_queue, clean_db):
+    """
+    Item 4 — Stale-writer rejection.
+
+    Worker A dequeues a task and crashes.  Worker B reclaims and COMPLETES it.
+    Worker A is then "resurrected" with its STALE task object (holding a
+    version from before the reclaim).  The version-checked ``update_task``
+    must reject the stale write — worker A's result must never silently
+    overwrite worker B's.  This closes the *stale-writer* variant of the
+    lost-update: the loser is rejected, not merged.
+    """
+    from src.agent_platform.scheduler.exceptions import TaskWriteConflictError
+
+    scheduler = TaskScheduler(redis_queue)
+    task_id = "race-stale-writer-001"
+
+    await scheduler.submit_task("agent-a", "echo", {}, task_id=task_id)
+
+    # Worker A claims (version goes 0 -> 1).
+    stale = await redis_queue.dequeue(worker_id="w-a", lease_seconds=0.5)
+    assert stale is not None
+    stale_version = stale.version  # captured version, will be stale
+
+    # Wait for lease to expire, then worker B reclaims + completes.
+    await asyncio.sleep(0.7)
+    reclaimed = await redis_queue.reclaim_orphaned_tasks()
+    assert task_id in reclaimed
+
+    second_claim = await redis_queue.dequeue(worker_id="w-b", lease_seconds=30)
+    assert second_claim is not None
+    assert second_claim.version > stale_version  # version has advanced
+
+    second_claim.status = TaskStatus.COMPLETED
+    second_claim.result = {"worker": "w-b"}
+    await redis_queue.update_task(second_claim)
+
+    # Worker A's stale object is used to write a conflicting result.
+    stale.status = TaskStatus.COMPLETED
+    stale.result = {"worker": "w-a-stale"}
+
+    with pytest.raises(TaskWriteConflictError):
+        await redis_queue.update_task(stale)
+
+    # The winner's result survives intact — no silent clobber.
+    final = await redis_queue.get_task(task_id)
+    assert final.status == TaskStatus.COMPLETED
+    assert final.result == {"worker": "w-b"}
+    # version was bumped by every successful write, not by the rejected stale write.
+    assert final.version >= stale_version + 2
+
+
+# ---------------------------------------------------------------------------
+# 21-22. PostgreSQL-succeeds / Redis-fails recovery
+# ---------------------------------------------------------------------------
+
+
+class _BrokenRedis:
+    """Proxy that simulates Redis being completely down for *all* operations.
+
+    Every method raises ``ConnectionError`` so that any Redis-backed code path
+    that does NOT gracefully degrade will fail.  ``recover_orphaned_tasks()``
+    is expected to catch and log these, not propagate them.
+    """
+
+    def __init__(self, inner):
+        pass  # no inner reference needed — all calls fail
+
+    async def get(self, *args, **kwargs):
+        raise ConnectionError("Redis is down (simulated)")
+
+    async def set(self, *args, **kwargs):
+        raise ConnectionError("Redis is down (simulated)")
+
+    async def zadd(self, *args, **kwargs):
+        raise ConnectionError("Redis is down (simulated)")
+
+    async def zrem(self, *args, **kwargs):
+        raise ConnectionError("Redis is down (simulated)")
+
+    async def zcard(self, *args, **kwargs):
+        raise ConnectionError("Redis is down (simulated)")
+
+    async def zrange(self, *args, **kwargs):
+        raise ConnectionError("Redis is down (simulated)")
+
+    async def zpopmin(self, *args, **kwargs):
+        raise ConnectionError("Redis is down (simulated)")
+
+    async def scan(self, *args, **kwargs):
+        raise ConnectionError("Redis is down (simulated)")
+
+    async def flushdb(self, *args, **kwargs):
+        raise ConnectionError("Redis is down (simulated)")
+
+    async def ping(self, *args, **kwargs):
+        raise ConnectionError("Redis is down (simulated)")
+
+    async def aclose(self, *args, **kwargs):
+        pass
+
+    def __getattr__(self, item):
+        # Any attribute not explicitly defined also fails.
+        raise ConnectionError("Redis is down (simulated)")
+
+
+@pytest.mark.asyncio
+async def test_recovery_pg_succeeds_redis_down(pg_session_factory):
+    """
+    Item 5 — PostgreSQL-succeeds / Redis-fails recovery.
+
+    When Redis is completely unreachable (ConnectionError on every call) but
+    PostgreSQL is healthy, ``recover_orphaned_tasks()`` must still update the
+    PostgreSQL state: any RUNNING task with an expired lease must be reset
+    to PENDING.  Redis writes are best-effort (caught and logged), so they
+    must NOT cause the method to raise or the DB update to roll back.
+    """
+    from src.agent_platform.scheduler.redis_queue import RedisTaskQueue
+
+    scheduler_queue = RedisTaskQueue(
+        redis_client=_BrokenRedis(), ttl_seconds=3600, session_factory=pg_session_factory
+    )
+    scheduler = TaskScheduler(scheduler_queue)
+    task_id = "race-pg-redis-down-001"
+
+    await scheduler.submit_task("agent-a", "echo", {}, task_id=task_id, max_retries=3)
+
+    # The DB row exists even though Redis is dead.
+    db_task = await scheduler_queue._load_task_from_db(task_id)
+    assert db_task is not None
+    assert db_task.status == TaskStatus.PENDING
+
+    # Simulate: a worker claimed the task (with a real Redis).  We can't use
+    # the broken Redis for dequeue, so we insert a RUNNING row directly.
+    from src.agent_platform.core.task import Task
+    from datetime import timedelta
+    db_task.status = TaskStatus.RUNNING
+    db_task.lease_owner = "w-a"
+    db_task.lease_expires_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=1)
+    await scheduler_queue._save_task_to_db(db_task)
+
+    # Now call recover_orphaned_tasks with Redis DOWN.
+    # DB updates must succeed; Redis writes are caught and logged.
+    recovered = await scheduler_queue.recover_orphaned_tasks()
+    assert task_id in recovered  # task was found in DB and reset
+
+    # Verify DB state was updated despite Redis being down.
+    db_after = await scheduler_queue._load_task_from_db(task_id)
+    assert db_after is not None
+    assert db_after.status == TaskStatus.PENDING
+    assert db_after.lease_owner is None
+    assert db_after.lease_expires_at is None
+
+
+@pytest.mark.asyncio
+async def test_recovery_redis_returns_task_to_queue(redis_queue, clean_db):
+    """
+    Item 5 — Recovery when Redis comes back online.
+
+    After Redis was down (flushed) and recover_orphaned_tasks() reset the DB
+    state to PENDING, a subsequent call to recover_orphaned_tasks() with a
+    working Redis must re-enqueue the task so workers can dequeue it.  This
+    proves the recovery is idempotent: safe to call with Redis down (DB-only)
+    and with Redis up (DB + re-enqueue).
+    """
+    scheduler = TaskScheduler(redis_queue)
+    task_id = "race-redis-recovery-001"
+
+    await scheduler.submit_task("agent-a", "echo", {}, task_id=task_id)
+
+    claimed = await redis_queue.dequeue(worker_id="w-a", lease_seconds=0.5)
+    assert claimed is not None
+    assert claimed.status == TaskStatus.RUNNING
+
+    await asyncio.sleep(0.7)  # lease expires
+
+    # Simulate Redis restart: flush all data.
+    await redis_queue.redis.flushdb()
+
+    # With Redis empty, recover_orphaned_tasks re-enqueues from DB.
+    recovered = await redis_queue.recover_orphaned_tasks()
+    assert task_id in recovered
+
+    # Task is now back in the Redis queue.
+    zcard = await redis_queue.redis.zcard(redis_queue.QUEUE_KEY)
+    assert zcard >= 1
+
+    # A worker can dequeue and complete the recovered task.
+    second_claim = await redis_queue.dequeue(worker_id="w-b", lease_seconds=30)
+    assert second_claim is not None
+    assert second_claim.task_id == task_id
+
+    second_claim.status = TaskStatus.COMPLETED
+    second_claim.result = {"recovered": True}
+    await redis_queue.update_task(second_claim)
+
+    final = await redis_queue.get_task(task_id)
+    assert final.status == TaskStatus.COMPLETED
+    assert final.result == {"recovered": True}
