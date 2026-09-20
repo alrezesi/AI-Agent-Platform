@@ -2,9 +2,52 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
+
+
+def _ci_provenance() -> dict[str, str]:
+    """Read GitHub Actions environment variables for provenance stamping.
+
+    Returns a dict with keys: source, run_id, run_number, sha, ref,
+    repo_url, started_at, server_url.  When not running in CI, returns
+    source="local" with the current UTC timestamp.
+    """
+    run_id = os.getenv("GITHUB_RUN_ID", "")
+    sha = os.getenv("GITHUB_SHA", "")
+    ref = os.getenv("GITHUB_REF", "")
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+    run_number = os.environ.get("GITHUB_RUN_NUMBER", "")
+    started = os.environ.get("GITHUB_RUN_STARTED_AT", "")
+
+    if run_id and sha:
+        repo_url = f"{server}/{repo}"
+        run_url = f"{repo_url}/actions/runs/{run_id}"
+        return {
+            "source": "github-actions",
+            "run_id": run_id,
+            "run_number": run_number,
+            "sha": sha,
+            "ref": ref,
+            "repo_url": repo_url,
+            "run_url": run_url,
+            "started_at": started,
+        }
+    # Local run — timestamp is now in ISO 8601 UTC.
+    return {
+        "source": "local",
+        "run_id": "",
+        "run_number": "",
+        "sha": os.getenv("GIT_COMMIT", "")[:12] or "",
+        "ref": os.getenv("GIT_BRANCH", ""),
+        "repo_url": "",
+        "run_url": "",
+        "started_at": datetime.now(UTC).isoformat(),
+    }
 
 
 def read_coverage_percentage(path: Path) -> float:
@@ -80,6 +123,7 @@ class ReportGenerator:
         load_metrics: dict[str, Any] | None,
         load_test_outcome: str | None,
         minimum: float = 85.0,
+        provenance: dict[str, str] | None = None,
     ) -> None:
         self.coverage_xml = coverage_xml
         self.coverage_detail_path = coverage_detail_path
@@ -87,6 +131,7 @@ class ReportGenerator:
         self.load_metrics = load_metrics
         self.load_test_outcome = load_test_outcome
         self.minimum = minimum
+        self.provenance = provenance or _ci_provenance()
 
     def _read_suites(self) -> dict[str, dict[str, int]]:
         results: dict[str, dict[str, int]] = {}
@@ -128,6 +173,7 @@ class ReportGenerator:
         test_ok = total_failures == 0 and total_errors == 0
         status = "PASS" if (coverage_pct >= self.minimum and test_ok) else "FAIL"
 
+        prov = self.provenance
         lines: list[str] = []
         lines.append("Test Summary")
         lines.append("=" * 50)
@@ -141,9 +187,28 @@ class ReportGenerator:
 
         lines.append("")
         lines.append(f"Total tests:  {total_passed}/{total_tests} passed "
-                      f"({total_failures} failures, {total_errors} errors)")
+                       f"({total_failures} failures, {total_errors} errors)")
         lines.append(f"Coverage:     {coverage_pct:.1f}% (minimum {self.minimum:.0f}%)")
         lines.append(f"Status:       {status}")
+
+        # --- CI provenance ---
+        if prov["source"] == "github-actions":
+            lines.append("")
+            lines.append("Provenance (CI run):")
+            lines.append(f"  Run ID:   {prov['run_id']}")
+            lines.append(f"  Run #:    {prov['run_number']}")
+            lines.append(f"  SHA:      {prov['sha']}")
+            lines.append(f"  Ref:      {prov['ref']}")
+            lines.append(f"  Started:  {prov['started_at']}")
+            lines.append(f"  Run URL:  {prov['run_url']}")
+        else:
+            lines.append("")
+            lines.append("Provenance (local run):")
+            lines.append(f"  SHA:      {prov['sha'] or '(unavailable)'}")
+            lines.append(f"  Ref:      {prov['ref'] or '(unavailable)'}")
+            lines.append(f"  Started:  {prov['started_at']}")
+            lines.append("  Note: This report was generated outside CI. "
+                         "CI runs stamp full GitHub Actions run ID/URL.")
 
         if self.load_metrics:
             lines.append("")

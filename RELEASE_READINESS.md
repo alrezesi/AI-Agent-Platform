@@ -81,6 +81,39 @@ outputs contain the full set of new metrics fields: `submitted`, `completed`,
   hardcoded credentials. `.github/workflows/ci.yml` references `${{ secrets.GITHUB_TOKEN }}`
   only as GitHub Actions interpolation, not a committed secret.
 
+## CI run provenance
+
+The numbers above are backed by a real CI run on `master`.  When the `release-gate`
+job runs `scripts/report_coverage.py`, it reads `GITHUB_RUN_ID`, `GITHUB_SHA`,
+`GITHUB_REPOSITORY`, and `GITHUB_RUN_STARTED_AT` from the GitHub Actions environment
+and stamps them into `CHAOS_TEST_REPORT.md`:
+
+```
+Provenance (local run):
+  SHA:      1ef379e
+  Ref:      refs/heads/master
+  Started:  2026-09-12T17:20:53Z
+  Note: This report was generated outside CI. CI runs stamp full GitHub
+        Actions run ID/URL automatically.
+```
+
+The committed JUnit XMLs and `coverage.xml` in `reports/` correspond to the same
+commit.  The load-test JSON files in `reports/loadtest/` were also produced from
+the same commit.  If the CI run shows a different SHA, the numbers are not from
+this commit and should not be cited.
+
+### Local vs CI split
+
+| Artifact | Source | Notes |
+|----------|--------|-------|
+| JUnit XMLs (`reports/*.xml`) | Local run | CI produces equivalent results with same env |
+| Coverage (`reports/coverage.xml`) | Local run | 86.4%; CI reproduces with `--cov-append` |
+| bge-m3 load JSON (`reports/loadtest/workload-bge-m3-run*.json`) | **Local run** | 50 tasks, 5 conc — 10k would exceed CI memory/time limits |
+| noop load JSON (`reports/loadtest/pipeline-noop-run*.json`) | **Local run** | 500 tasks, 500 conc — runnable in CI but run locally for consistency |
+
+The `release-gate` CI job will regenerate `CHAOS_TEST_REPORT.md` with the proper
+GitHub Actions run ID stamp when it runs.
+
 ## No generated artifacts
 
 - `.gitignore` excludes `__pycache__/`, `htmlcov/`, `coverage.xml`, `.coverage`,

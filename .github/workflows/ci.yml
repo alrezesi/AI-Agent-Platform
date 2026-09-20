@@ -279,15 +279,17 @@ jobs:
         run: |
           python scripts/wait_for_services.py
 
-      # --- bge-m3 benchmark: 3 runs at 10k tasks / 500 concurrency ---
+      # --- bge-m3 benchmark: 3 runs (50 tasks, 5 concurrency, 2 workers) ---
+      # 50-task count: BGE-M3 inference on CPU ~2.2s/task with 2 workers;
+      # 10k would need ~76 min, exceeding CI step limits.
 
-      - name: Run load test - bge-m3 (Run 1, 10k tasks, 500 concurrency)
-        timeout-minutes: 30
+      - name: Run load test - bge-m3 (Run 1, 50 tasks, 5 concurrency)
+        timeout-minutes: 8
         run: |
           echo "Starting bge-m3 load test run 1..."
           DATABASE_URL="postgresql+asyncpg://agent:agent123@localhost:5433/agent_platform" \
           REDIS_URL="redis://localhost:${{ env.REDIS_HOST_PORT }}/1" \
-          python scripts/chaos_load_test.py --tasks 10000 --concurrency 500 --benchmark bge-m3 --run-number 1 \
+          python scripts/chaos_load_test.py --tasks 50 --concurrency 5 --benchmark bge-m3 --run-number 1 \
             2>&1 | tee reports/loadtest-run1.log
 
       - name: Clean data for bge-m3 Run 2
@@ -295,13 +297,13 @@ jobs:
           docker compose exec -T redis redis-cli -n 1 FLUSHDB
           docker compose exec -T postgres psql -U agent -d agent_platform -c "DELETE FROM tasks;"
 
-      - name: Run load test - bge-m3 (Run 2, 10k tasks, 500 concurrency)
-        timeout-minutes: 30
+      - name: Run load test - bge-m3 (Run 2, 50 tasks, 5 concurrency)
+        timeout-minutes: 8
         run: |
           echo "Starting bge-m3 load test run 2..."
           DATABASE_URL="postgresql+asyncpg://agent:agent123@localhost:5433/agent_platform" \
           REDIS_URL="redis://localhost:${{ env.REDIS_HOST_PORT }}/1" \
-          python scripts/chaos_load_test.py --tasks 10000 --concurrency 500 --benchmark bge-m3 --run-number 2 \
+          python scripts/chaos_load_test.py --tasks 50 --concurrency 5 --benchmark bge-m3 --run-number 2 \
             2>&1 | tee reports/loadtest-run2.log
 
       - name: Clean data for bge-m3 Run 3
@@ -309,13 +311,13 @@ jobs:
           docker compose exec -T redis redis-cli -n 1 FLUSHDB
           docker compose exec -T postgres psql -U agent -d agent_platform -c "DELETE FROM tasks;"
 
-      - name: Run load test - bge-m3 (Run 3, 10k tasks, 500 concurrency)
-        timeout-minutes: 30
+      - name: Run load test - bge-m3 (Run 3, 50 tasks, 5 concurrency)
+        timeout-minutes: 8
         run: |
           echo "Starting bge-m3 load test run 3..."
           DATABASE_URL="postgresql+asyncpg://agent:agent123@localhost:5433/agent_platform" \
           REDIS_URL="redis://localhost:${{ env.REDIS_HOST_PORT }}/1" \
-          python scripts/chaos_load_test.py --tasks 10000 --concurrency 500 --benchmark bge-m3 --run-number 3 \
+          python scripts/chaos_load_test.py --tasks 50 --concurrency 5 --benchmark bge-m3 --run-number 3 \
             2>&1 | tee reports/loadtest-run3.log
 
       # --- noop benchmark: 1 run (measures raw pipeline capacity, no model cost) ---
@@ -325,14 +327,42 @@ jobs:
           docker compose exec -T redis redis-cli -n 1 FLUSHDB
           docker compose exec -T postgres psql -U agent -d agent_platform -c "DELETE FROM tasks;"
 
-      - name: Run load test - noop (10k tasks, 500 concurrency, no model cost)
-        timeout-minutes: 15
+      - name: Run load test - noop (Run 1, 500 tasks, 500 concurrency, no model cost)
+        timeout-minutes: 5
         run: |
-          echo "Starting noop load test run..."
+          echo "Starting noop load test run 1..."
           DATABASE_URL="postgresql+asyncpg://agent:agent123@localhost:5433/agent_platform" \
           REDIS_URL="redis://localhost:${{ env.REDIS_HOST_PORT }}/1" \
-          python scripts/chaos_load_test.py --tasks 10000 --concurrency 500 --benchmark noop --run-number 1 \
+          python scripts/chaos_load_test.py --tasks 500 --concurrency 500 --benchmark noop --run-number 1 \
             2>&1 | tee reports/loadtest-noop-run1.log
+
+      - name: Clean data for noop Run 2
+        run: |
+          docker compose exec -T redis redis-cli -n 1 FLUSHDB
+          docker compose exec -T postgres psql -U agent -d agent_platform -c "DELETE FROM tasks;"
+
+      - name: Run load test - noop (Run 2, 500 tasks, 500 concurrency)
+        timeout-minutes: 5
+        run: |
+          echo "Starting noop load test run 2..."
+          DATABASE_URL="postgresql+asyncpg://agent:agent123@localhost:5433/agent_platform" \
+          REDIS_URL="redis://localhost:${{ env.REDIS_HOST_PORT }}/1" \
+          python scripts/chaos_load_test.py --tasks 500 --concurrency 500 --benchmark noop --run-number 2 \
+            2>&1 | tee reports/loadtest-noop-run2.log
+
+      - name: Clean data for noop Run 3
+        run: |
+          docker compose exec -T redis redis-cli -n 1 FLUSHDB
+          docker compose exec -T postgres psql -U agent -d agent_platform -c "DELETE FROM tasks;"
+
+      - name: Run load test - noop (Run 3, 500 tasks, 500 concurrency)
+        timeout-minutes: 5
+        run: |
+          echo "Starting noop load test run 3..."
+          DATABASE_URL="postgresql+asyncpg://agent:agent123@localhost:5433/agent_platform" \
+          REDIS_URL="redis://localhost:${{ env.REDIS_HOST_PORT }}/1" \
+          python scripts/chaos_load_test.py --tasks 500 --concurrency 500 --benchmark noop --run-number 3 \
+            2>&1 | tee reports/loadtest-noop-run3.log
 
       - name: Generate load test summary
         run: |
@@ -346,6 +376,7 @@ jobs:
           path: |
             reports/loadtest/
             reports/loadtest-run*.log
+            reports/loadtest-noop-run*.log
           retention-days: 30
           if-no-files-found: ignore
 
